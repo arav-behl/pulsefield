@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pulsefield.app/schema/v1.json",
+  "title": "Pulsefield canonical health dataset",
+  "type": "object",
+  "required": ["schemaVersion", "datasetId", "timezone", "observations", "features", "scores", "sync"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "datasetId": { "type": "string", "minLength": 1 },
+    "timezone": { "type": "string", "minLength": 1 },
+    "observations": { "type": "array", "items": { "$ref": "#/$defs/observation" } },
+    "features": { "type": "array", "items": { "$ref": "#/$defs/feature" } },
+    "scores": { "type": "array", "items": { "$ref": "#/$defs/score" } },
+    "sync": { "$ref": "#/$defs/syncState" }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "required": ["adapter", "source", "observedAt", "importedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "adapter": { "enum": ["healthkit", "health_export", "demo"] },
+        "source": { "type": "string" },
+        "sourceRevision": { "type": ["string", "null"] },
+        "device": { "type": ["string", "null"] },
+        "sourceRecordId": { "type": ["string", "null"] },
+        "observedAt": { "type": "string", "format": "date-time" },
+        "importedAt": { "type": "string", "format": "date-time" },
+        "queryId": { "type": ["string", "null"] }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "required": ["id", "kind", "start", "end", "value", "unit", "provenance"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": ["string", "null"] },
+        "value": {},
+        "unit": { "type": "string", "minLength": 1 },
+        "quality": { "enum": ["observed", "estimated", "condensed", "unknown"] },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    },
+    "feature": {
+      "type": "object",
+      "required": ["id", "kind", "window", "value", "unit", "inputs", "algorithm"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "window": { "$ref": "#/$defs/window" },
+        "value": {},
+        "unit": { "type": "string" },
+        "inputs": { "type": "array", "items": { "type": "string" } },
+        "algorithm": { "$ref": "#/$defs/algorithm" },
+        "missingReason": { "type": ["string", "null"] }
+      }
+    },
+    "score": {
+      "type": "object",
+      "required": ["id", "kind", "window", "value", "unit", "state", "confidence", "components", "algorithm"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "window": { "$ref": "#/$defs/window" },
+        "value": { "type": ["number", "null"] },
+        "unit": { "type": "string" },
+        "state": { "enum": ["calibrating", "insufficient_data", "provisional", "scored"] },
+        "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+        "components": { "type": "array", "items": { "$ref": "#/$defs/component" } },
+        "algorithm": { "$ref": "#/$defs/algorithm" }
+      }
+    },
+    "component": {
+      "type": "object",
+      "required": ["kind", "value", "weight", "status", "inputs"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string" },
+        "value": { "type": ["number", "null"] },
+        "weight": { "type": "number", "minimum": 0 },
+        "status": { "enum": ["available", "missing", "estimated"] },
+        "inputs": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "window": {
+      "type": "object",
+      "required": ["start", "end", "timezone"],
+      "additionalProperties": false,
+      "properties": {
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" },
+        "timezone": { "type": "string" }
+      }
+    },
+    "algorithm": {
+      "type": "object",
+      "required": ["name", "version", "formula", "missingDataPolicy"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "formula": { "type": "string" },
+        "missingDataPolicy": { "type": "string" }
+      }
+    },
+    "syncState": {
+      "type": "object",
+      "required": ["status", "adapter", "lastAttemptAt"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "enum": ["never", "ready", "syncing", "complete", "partial", "error"] },
+        "adapter": { "enum": ["healthkit", "health_export", "demo", "none"] },
+        "lastAttemptAt": { "type": ["string", "null"] },
+        "lastSuccessAt": { "type": ["string", "null"] },
+        "cursor": { "type": ["string", "null"] },
+        "typesRead": { "type": "array", "items": { "type": "string" } },
+        "typesUnavailable": { "type": "array", "items": { "type": "string" } },
+        "error": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

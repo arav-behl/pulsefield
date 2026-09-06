@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#09110f" />
+    <meta name="description" content="A local-first observatory for your Apple Health data." />
+    <title>Pulsefield — Make your health signal visible</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles-extra.css" />
+    <link rel="stylesheet" href="styles-fitness.css" />
+    <link rel="stylesheet" href="styles-wild.css" />
+    <link rel="stylesheet" href="styles-windows.css" />
+    <link rel="stylesheet" href="styles-interactions.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+    <div class="shell">
+      <header class="topbar">
+        <a class="brand" href="#top" aria-label="Pulsefield home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>pulsefield</span></a>
+        <div class="topbar-actions">
+          <span class="privacy-note"><span class="privacy-dot"></span> stays on this device</span>
+          <button class="button button-ghost" id="importButton" type="button">Import export</button>
+          <input id="fileInput" type="file" accept=".xml,.json,application/xml,application/json" hidden />
+        </div>
+      </header>
+
+      <main id="top">
+        <section class="intro-section">
+          <div class="eyebrow"><span class="eyebrow-line"></span> personal health observatory <span class="eyebrow-line"></span></div>
+          <h1>Your body is already<br /><em>keeping score.</em></h1>
+          <p class="intro-copy">HealthKit logs the signal. Pulsefield helps you see the pattern — sleep, recovery, load, and the small changes hiding between them.</p>
+          <div class="intro-actions"><button class="button button-primary" id="heroImportButton" type="button">Open your Health export <span>↗</span></button><button class="text-button" id="demoButton" type="button">Keep exploring the demo <span>→</span></button></div>
+          <p class="import-status" id="importStatus" role="status">Demo mode · no data leaves your browser</p>
+          <div class="sync-panel">
+            <div>
+              <span class="section-kicker">connection</span>
+              <h3 id="syncTitle">Connect Apple Health once</h3>
+              <p id="syncCopy">The native companion will remember your permission and sync only what has changed since the last successful cursor.</p>
+            </div>
+            <div class="sync-actions">
+              <button class="button button-primary button-small" id="syncButton" type="button">Sync Health data <span>↗</span></button>
+              <button class="text-button" id="profileButton" type="button">Set your context <span>→</span></button>
+            </div>
+            <div class="sync-meta"><span class="sync-dot" id="syncDot"></span><span id="syncState">not connected</span><span class="sync-separator">·</span><span id="syncLast">no sync yet</span></div>
+          </div>
+        </section>
+
+        <section class="signal-brief">
+          <div class="signal-brief-copy"><span class="section-kicker">signal story</span><h2 id="primaryInsight">Finding the shape of your data…</h2><p id="primaryInsightDetail">We are comparing your recent movement, training history, and overnight coverage against your own baseline.</p><button class="brief-link" id="briefLink" type="button">Explore the evidence <span>↓</span></button></div>
+          <div class="signal-brief-stats"><div><strong id="movementDelta">—</strong><span>recent steps<br />vs long-term median</span></div><div><strong id="sleepGapDays">—</strong><span>days since<br />sleep signal</span></div><div><strong id="activeDays30">—</strong><span>workout days<br />in last 30</span></div></div>
+        </section>
+
+        <section class="panel historical-windows" id="historicalWindows" hidden>
+          <div class="panel-heading"><div><span class="section-kicker">historical signal</span><h3>When the data was usable</h3></div><span class="panel-meta" id="historicalWindowMeta">—</span></div>
+          <p class="historical-window-intro" id="historicalWindowIntro">When recent data is incomplete, these windows preserve the last periods where the dashboard had enough signal to make a fair comparison.</p>
+          <div class="window-grid">
+            <article class="window-card"><div class="window-card-heading"><div><span class="section-kicker">last analysis-ready window</span><h4 id="lastGoodWindowRange">—</h4></div><span class="window-days" id="lastGoodWindowDays">—</span></div><div class="window-chart" id="lastGoodWindowChart" role="img" aria-label="Trend for the last analysis-ready data window"></div><div class="window-legend" id="lastGoodWindowLegend">—</div><p class="window-stats" id="lastGoodWindowStats">—</p><button class="window-open" id="lastGoodWindowButton" type="button">Open this window ↗</button></article>
+            <article class="window-card"><div class="window-card-heading"><div><span class="section-kicker">longest consistent signal</span><h4 id="bestWindowRange">—</h4></div><span class="window-days" id="bestWindowDays">—</span></div><div class="window-chart" id="bestWindowChart" role="img" aria-label="Trend for the longest consistent signal window"></div><div class="window-legend" id="bestWindowLegend">—</div><p class="window-stats" id="bestWindowStats">—</p><button class="window-open" id="bestWindowButton" type="button">Open this window ↗</button></article>
+          </div>
+        </section>
+
+        <section class="date-row" aria-label="Dashboard date range">
+          <div><span class="section-kicker">morning readout</span><h2 id="dashboardDate">Sunday, September 6</h2><p class="readout-context" id="readoutContext">Latest available day</p></div>
+          <div class="date-controls"><button class="text-button usable-jump" id="jumpUsableButton" type="button">Latest usable ↗</button><button class="icon-button" id="previousDay" type="button" aria-label="Previous day">←</button><label class="date-picker-label"><span>selected day</span><input id="dayPicker" type="date" /></label><button class="icon-button" id="nextDay" type="button" aria-label="Next day">→</button></div>
+        </section>
+
+        <section class="score-grid" aria-label="Daily scores">
+          <article class="score-card score-card-recovery"><div class="card-topline"><span>readiness proxy</span><span class="score-badge score-badge-green" id="recoveryBadge">GREEN</span></div><div class="score-value"><strong id="recoveryValue">78</strong><span>/ 100</span></div><p id="recoveryCopy">Your system looks ready for a challenging day.</p><div class="mini-meter"><span id="recoveryMeter"></span></div><div class="metric-foot"><span>HRV <b id="hrvValue">64 ms</b></span><span>RHR <b id="rhrValue">54 bpm</b></span></div><button class="audit-link" id="auditButton" type="button">Show the evidence <span>→</span></button></article>
+          <article class="score-card score-card-sleep"><div class="card-topline"><span>sleep performance</span><span class="score-badge score-badge-lilac" id="sleepBadge">last night</span></div><div class="score-value"><strong id="sleepValue">84</strong><span>%</span></div><p id="sleepCopy">7h 32m asleep · 8h 58m in bed.</p><div class="sleep-bars"><i class="deep"></i><i class="rem"></i><i class="core"></i><i class="awake"></i></div><div class="metric-foot"><span>deep <b id="sleepDeepCardValue">1h 42m</b></span><span>REM <b id="sleepRemCardValue">1h 56m</b></span></div></article>
+          <article class="score-card score-card-load"><div class="card-topline"><span>day load</span><span class="score-badge score-badge-amber" id="loadBadge">estimated</span></div><div class="score-value"><strong id="loadValue">11.8</strong><span>/ 21</span></div><p id="loadCopy">Moderate load. Enough stimulus, room to recover.</p><div class="load-arc"><span id="loadArc"></span><i></i></div><div class="metric-foot"><span>active <b id="activeValue">642 kcal</b></span><span>exercise <b id="exerciseValue">48 min</b></span></div></article>
+        </section>
+
+        <section class="audit-panel panel" id="auditPanel" hidden>
+          <div class="panel-heading"><div><span class="section-kicker">audit trail</span><h3>Why this number exists</h3></div><button class="text-button" id="closeAudit" type="button">Close <span>×</span></button></div>
+          <div class="audit-grid">
+            <div><span>score state</span><b id="auditState">provisional · 3/4 inputs</b></div>
+            <div><span>inputs</span><b id="auditInputs">sleep · HRV SDNN · resting HR</b></div>
+            <div><span>selected values</span><b id="auditValues">sleep — · HRV — · RHR —</b></div>
+            <div><span>algorithm</span><b id="auditAlgorithm">readiness-proxy / v0.1</b></div>
+          </div>
+          <p class="audit-note">Every displayed score will link to source observations, a declared time window, units, missing-data handling, and the algorithm version that produced it.</p>
+        </section>
+
+        <section class="analysis-grid">
+          <article class="panel trend-panel"><div class="panel-heading"><div><span class="section-kicker">trendline</span><h3 id="trendHeading">Seven days of signal</h3></div><div class="legend" id="trendLegend"><span><i class="legend-recovery"></i>recovery</span><span><i class="legend-sleep"></i>sleep</span><span><i class="legend-load"></i>load</span></div></div><div class="range-tools"><label>from <input id="trendFrom" type="date" /></label><label>to <input id="trendTo" type="date" /></label><button class="text-button" id="applyTrendRange" type="button">Plot range ↗</button><button class="text-button" id="clearTrendRange" type="button">Use selected day</button><span id="rangeStatus">7-day context</span></div><div class="chart-wrap" id="trendChart" role="img" aria-label="Seven day recovery, sleep, and load trend chart"></div><div class="chart-labels" id="chartLabels"></div></article>
+          <article class="panel insight-panel"><div class="panel-heading"><div><span class="section-kicker">signal notes</span><h3>Worth noticing</h3></div><span class="sparkle">✦</span></div><div class="insight-list" id="insightList"></div></article>
+        </section>
+
+        <section class="visual-grid">
+          <article class="panel rhythm-panel"><div class="panel-heading"><div><span class="section-kicker">90-day rhythm</span><h3>Movement has a pulse</h3></div><span class="panel-meta">steps / day</span></div><div class="rhythm-chart" id="rhythmChart" role="img" aria-label="Ninety day movement rhythm"></div><div class="chart-foot"><span><i class="dot-green"></i>daily steps</span><span><i class="line-lilac"></i>long-term median</span><b id="rhythmSummary">—</b></div></article>
+          <article class="panel gap-panel"><div class="panel-heading"><div><span class="section-kicker">coverage map</span><h3>Where the signal goes quiet</h3></div><span class="panel-meta">all time</span></div><div class="coverage-timeline" id="coverageTimeline"></div><p class="gap-note" id="gapNote">—</p></article>
+        </section>
+
+        <section class="lower-grid">
+          <article class="panel sleep-panel"><div class="panel-heading"><div><span class="section-kicker">last night</span><h3>Sleep architecture</h3></div><span class="panel-meta" id="sleepWindow">23:14 → 06:46</span></div><div class="sleep-timeline" id="sleepTimeline"></div><div class="stage-legend"><span><i class="stage-deep"></i>deep <b id="sleepDeepValue">1h 42m</b></span><span><i class="stage-rem"></i>REM <b id="sleepRemValue">1h 56m</b></span><span><i class="stage-core"></i>core <b id="sleepCoreValue">3h 54m</b></span><span><i class="stage-awake"></i>awake <b id="sleepAwakeValue">26m</b></span></div></article>
+          <article class="panel coverage-panel"><div class="panel-heading"><div><span class="section-kicker">data quality</span><h3>What we can trust</h3></div><span class="coverage-score" id="coverageScore">92%</span></div><div class="coverage-bar"><span id="coverageBar"></span></div><p class="coverage-copy" id="coverageCopy">A strong week of signal. Overnight heart rate coverage is doing the heavy lifting.</p><div class="coverage-rows"><div><span>sleep</span><b id="coverageSleep">100%</b></div><div><span>heart rate</span><b id="coverageHeartRate">94%</b></div><div><span>workouts</span><b id="coverageWorkouts">83%</b></div></div></article>
+        </section>
+
+        <section class="movement-grid">
+          <article class="panel movement-panel"><div class="panel-heading"><div><span class="section-kicker">movement signal</span><h3>What your day contains</h3></div><span class="panel-meta" id="movementWindow">latest day</span></div><div class="movement-metrics"><div><span>steps</span><strong id="stepsValue">—</strong><small id="stepsContext">—</small></div><div><span>distance</span><strong id="distanceValue">—</strong><small>walking + running</small></div><div><span>active energy</span><strong id="energyValue">—</strong><small id="energyContext">—</small></div><div><span>exercise time</span><strong id="exerciseMinutesValue">—</strong><small id="exerciseContext">—</small></div></div><p class="fitness-note" id="fitnessContext">VO₂ max and heart-rate recovery will appear when the export contains them.</p></article>
+          <article class="panel training-panel"><div class="panel-heading"><div><span class="section-kicker">training archive</span><h3>Where your effort goes</h3></div><span class="panel-meta" id="trainingWindow">full export</span></div><div class="training-summary"><div><strong id="totalWorkoutValue">—</strong><span>workouts</span></div><div><strong id="totalWorkoutHours">—</strong><span>hours logged</span></div><div><strong id="trainingLoadValue">—</strong><span>load units</span></div></div><div class="workout-mix" id="workoutMix"></div></article>
+        </section>
+
+        <section class="panel heatmap-panel"><div class="panel-heading"><div><span class="section-kicker">last year in motion</span><h3>Your activity fingerprint</h3></div><div class="heat-legend"><span>quiet</span><i class="heat-0"></i><i class="heat-1"></i><i class="heat-2"></i><i class="heat-3"></i><i class="heat-4"></i><span>high</span></div></div><div class="heatmap" id="activityHeatmap" role="img" aria-label="Activity heatmap for the last 365 days"></div><div class="heatmap-labels"><span>steps, daily</span><span id="heatmapSummary">—</span></div></section>
+
+        <section class="panel spectrum-panel"><div class="panel-heading"><div><span class="section-kicker">training fingerprint</span><h3>Duration × cardiovascular load</h3></div><span class="panel-meta">workouts with heart rate</span></div><div class="spectrum-chart" id="spectrumChart" role="img" aria-label="Workout duration and cardiovascular load scatter plot"></div><p class="spectrum-note">Each dot is a workout. Farther right means longer; higher means more estimated cardiovascular load. This is an internal-load proxy, not muscle strain.</p></section>
+
+        <section class="activity-section"><div class="section-heading-row"><div><span class="section-kicker">recent movement</span><h3>Where the load came from</h3></div><button class="text-button" type="button">View all <span>→</span></button></div><div class="activity-table" id="activityTable"></div></section>
+
+        <section class="footer-callout"><div class="footer-symbol">⌁</div><div><span class="section-kicker">open by default</span><h2>Useful numbers.<br /><em>Honest uncertainty.</em></h2></div><p>Pulsefield is a transparent interpretation layer for the data you already own. It never pretends to be WHOOP, a doctor, or a diagnosis.</p></section>
+      </main>
+      <footer class="footer"><span>pulsefield / v0.1 demo</span><span>built for people who want to understand their own data</span><span>local-first · open-source ready</span></footer>
+    </div>
+    <div class="chart-tooltip" id="chartTooltip" role="status" hidden></div>
+    <dialog class="profile-dialog" id="profileDialog">
+      <form method="dialog" id="profileForm">
+        <div class="panel-heading"><div><span class="section-kicker">your context</span><h3>Make the signal personal</h3></div><button class="dialog-close" value="cancel" aria-label="Close">×</button></div>
+        <p class="dialog-copy">A few explicit preferences help us interpret trends without guessing who you are.</p>
+        <label>What are you optimizing for?
+          <select id="goalInput"><option value="awareness">General awareness</option><option value="sleep">Better sleep</option><option value="training">Training capacity</option><option value="energy">Daily energy</option></select>
+        </label>
+        <label>What is your usual sleep target?
+          <input id="sleepTargetInput" type="number" min="4" max="12" step="0.25" value="8" /> <span class="input-unit">hours</span>
+        </label>
+        <label>Which timezone defines your day?
+          <select id="timezoneInput"></select>
+        </label>
+        <div class="dialog-actions"><button class="button button-primary" value="save">Save context</button><button class="text-button" value="cancel">Not now</button></div>
+      </form>
+    </dialog>
+    <script src="personal-data.js"></script>
+    <script src="app.js" defer></script>
+  </body>
+</html>

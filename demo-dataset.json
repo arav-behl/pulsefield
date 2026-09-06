@@ -1,0 +1,122 @@
+{
+  "schemaVersion": "1.0.0",
+  "datasetId": "demo-2026-09-06",
+  "timezone": "Asia/Kolkata",
+  "observations": [
+    {
+      "id": "obs-hrv-20260906",
+      "kind": "heart_rate_variability_sdnn",
+      "start": "2026-09-06T04:12:00+05:30",
+      "end": "2026-09-06T04:12:00+05:30",
+      "value": 64,
+      "unit": "ms",
+      "quality": "observed",
+      "provenance": {
+        "adapter": "demo",
+        "source": "Apple Watch",
+        "sourceRevision": "demo-watchos",
+        "device": "Apple Watch",
+        "sourceRecordId": "healthkit-demo-hrv-1",
+        "observedAt": "2026-09-06T04:12:00+05:30",
+        "importedAt": "2026-09-06T08:00:00+05:30",
+        "queryId": "demo-query-1"
+      }
+    },
+    {
+      "id": "obs-rhr-20260906",
+      "kind": "resting_heart_rate",
+      "start": "2026-09-06T04:15:00+05:30",
+      "end": "2026-09-06T04:15:00+05:30",
+      "value": 54,
+      "unit": "bpm",
+      "quality": "estimated",
+      "provenance": {
+        "adapter": "demo",
+        "source": "Apple Watch",
+        "sourceRevision": "demo-watchos",
+        "device": "Apple Watch",
+        "sourceRecordId": "healthkit-demo-rhr-1",
+        "observedAt": "2026-09-06T04:15:00+05:30",
+        "importedAt": "2026-09-06T08:00:00+05:30",
+        "queryId": "demo-query-1"
+      }
+    },
+    {
+      "id": "obs-sleep-20260906",
+      "kind": "sleep_asleep",
+      "start": "2026-09-05T23:14:00+05:30",
+      "end": "2026-09-06T06:46:00+05:30",
+      "value": 7.53,
+      "unit": "hours",
+      "quality": "estimated",
+      "provenance": {
+        "adapter": "demo",
+        "source": "Apple Watch",
+        "sourceRevision": "demo-watchos",
+        "device": "Apple Watch",
+        "sourceRecordId": "healthkit-demo-sleep-1",
+        "observedAt": "2026-09-06T06:46:00+05:30",
+        "importedAt": "2026-09-06T08:00:00+05:30",
+        "queryId": "demo-query-1"
+      }
+    }
+  ],
+  "features": [
+    {
+      "id": "feature-sleep-efficiency-20260906",
+      "kind": "sleep_efficiency",
+      "window": {
+        "start": "2026-09-05T23:14:00+05:30",
+        "end": "2026-09-06T06:46:00+05:30",
+        "timezone": "Asia/Kolkata"
+      },
+      "value": 84,
+      "unit": "percent",
+      "inputs": ["obs-sleep-20260906"],
+      "algorithm": {
+        "name": "sleep-score-v0.1",
+        "version": "0.1.0",
+        "formula": "0.50*sufficiency + 0.30*efficiency + 0.20*timing_consistency",
+        "missingDataPolicy": "show missing; do not replace with zero"
+      },
+      "missingReason": null
+    }
+  ],
+  "scores": [
+    {
+      "id": "score-readiness-20260906",
+      "kind": "readiness_proxy",
+      "window": {
+        "start": "2026-09-06T00:00:00+05:30",
+        "end": "2026-09-07T00:00:00+05:30",
+        "timezone": "Asia/Kolkata"
+      },
+      "value": 78,
+      "unit": "points",
+      "state": "provisional",
+      "confidence": 82,
+      "components": [
+        { "kind": "sleep", "value": 84, "weight": 0.4, "status": "available", "inputs": ["feature-sleep-efficiency-20260906"] },
+        { "kind": "hrv_sdnn", "value": 74, "weight": 0.3, "status": "available", "inputs": ["obs-hrv-20260906"] },
+        { "kind": "resting_heart_rate", "value": 76, "weight": 0.2, "status": "available", "inputs": ["obs-rhr-20260906"] },
+        { "kind": "respiratory_rate", "value": null, "weight": 0.1, "status": "missing", "inputs": [] }
+      ],
+      "algorithm": {
+        "name": "readiness-proxy-v0.1",
+        "version": "0.1.0",
+        "formula": "weighted_mean(available components), baseline-relative",
+        "missingDataPolicy": "renormalize available weights and mark provisional"
+      }
+    }
+  ],
+  "sync": {
+    "status": "complete",
+    "adapter": "demo",
+    "lastAttemptAt": "2026-09-06T08:00:00+05:30",
+    "lastSuccessAt": "2026-09-06T08:00:00+05:30",
+    "cursor": "demo-cursor-1",
+    "typesRead": ["heart_rate_variability_sdnn", "resting_heart_rate", "sleep_analysis"],
+    "typesUnavailable": ["oxygen_saturation"],
+    "error": null
+  }
+}

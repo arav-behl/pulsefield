@@ -1,0 +1,6 @@
+personal-data.js
+personal-data.json
+health-analysis-report.json
+apple_health_export_*/
+export.zip
+.DS_Store
