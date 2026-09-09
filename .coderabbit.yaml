@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+
+reviews:
+  profile: "chill"
+  high_level_summary: true
+  review_status: true
+  auto_review:
+    enabled: true
+    drafts: true
+    auto_incremental_review: true
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        Review this repository as Pulsefield, a local-first Apple Health export visualizer.
+
+        - Treat imported Apple Health XML, ZIP, and JSON as untrusted sensitive data. Flag accidental uploads, telemetry, analytics, logging of raw health data, secrets, or unsafe HTML injection.
+        - Verify parsing, normalization, units, timestamps, time zones, interval overlap, deduplication, source/device provenance, revisions, deletions, and deterministic identifiers.
+        - Missing, unavailable, unauthorized, sparse, or low-quality data must remain distinguishable from numeric zero.
+        - Keep Apple Health HRV SDNN distinct from WHOOP RMSSD; never convert one into the other with a fixed multiplier.
+        - Every displayed feature or score should remain traceable to observations, inputs, a time window, a missing-data policy, and an algorithm version.
+        - Do not introduce medical, diagnostic, treatment, or unsupported WHOOP-parity claims. Use transparent wellness-trend language.
+        - Keep demo fixtures separate from imported personal data and preserve the canonical flow: adapter -> observations -> features -> scores -> explanations and UI.
+        - For large exports, protect responsiveness and avoid unnecessary copies of raw XML or ZIP contents.
+        - Prefer accessible controls and visible calibration, coverage, progress, and error states.
+
+chat:
+  auto_reply: true
