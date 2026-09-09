@@ -12,7 +12,7 @@ The canonical JSON shape is in schema.json. A number only becomes meaningful whe
 
 | Layer | Meaning | Example |
 | --- | --- | --- |
-| Observation | Source fact | Apple HRV SDNN: 64 ms |
+| Observation | Source fact | Apple HRV SDNN: 64 ms, or a bounded workout record |
 | Feature | Derived fact | Sleep efficiency: 91% |
 | Score | Transparent composition | Readiness proxy: 78/100 |
 | Sync state | What the app actually knows | Complete, 14 types read, cursor advanced |
@@ -22,6 +22,7 @@ The canonical JSON shape is in schema.json. A number only becomes meaningful whe
 - A contributor can trace a dashboard number back to source records.
 - A model update can use a new algorithm version without rewriting history.
 - Missing inputs remain visible instead of becoming zeros.
+- Calibrating, missing, and available score components remain distinct.
 - A native HealthKit adapter and browser export adapter can produce the same canonical records.
 - Users can export their normalized data without exporting a proprietary database or sending it to a server.
 

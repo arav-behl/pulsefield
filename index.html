@@ -25,7 +25,7 @@
         <div class="topbar-actions">
           <span class="privacy-note"><span class="privacy-dot"></span> stays on this device</span>
           <button class="button button-ghost" id="importButton" type="button">Import export</button>
-          <input id="fileInput" type="file" accept=".xml,.json,application/xml,application/json" hidden />
+          <input id="fileInput" type="file" accept=".zip,.xml,.json,application/zip,application/xml,application/json" hidden />
         </div>
       </header>
 
@@ -72,7 +72,7 @@
         <section class="score-grid" aria-label="Daily scores">
           <article class="score-card score-card-recovery"><div class="card-topline"><span>readiness proxy</span><span class="score-badge score-badge-green" id="recoveryBadge">GREEN</span></div><div class="score-value"><strong id="recoveryValue">78</strong><span>/ 100</span></div><p id="recoveryCopy">Your system looks ready for a challenging day.</p><div class="mini-meter"><span id="recoveryMeter"></span></div><div class="metric-foot"><span>HRV <b id="hrvValue">64 ms</b></span><span>RHR <b id="rhrValue">54 bpm</b></span></div><button class="audit-link" id="auditButton" type="button">Show the evidence <span>→</span></button></article>
           <article class="score-card score-card-sleep"><div class="card-topline"><span>sleep performance</span><span class="score-badge score-badge-lilac" id="sleepBadge">last night</span></div><div class="score-value"><strong id="sleepValue">84</strong><span>%</span></div><p id="sleepCopy">7h 32m asleep · 8h 58m in bed.</p><div class="sleep-bars"><i class="deep"></i><i class="rem"></i><i class="core"></i><i class="awake"></i></div><div class="metric-foot"><span>deep <b id="sleepDeepCardValue">1h 42m</b></span><span>REM <b id="sleepRemCardValue">1h 56m</b></span></div></article>
-          <article class="score-card score-card-load"><div class="card-topline"><span>day load</span><span class="score-badge score-badge-amber" id="loadBadge">estimated</span></div><div class="score-value"><strong id="loadValue">11.8</strong><span>/ 21</span></div><p id="loadCopy">Moderate load. Enough stimulus, room to recover.</p><div class="load-arc"><span id="loadArc"></span><i></i></div><div class="metric-foot"><span>active <b id="activeValue">642 kcal</b></span><span>exercise <b id="exerciseValue">48 min</b></span></div></article>
+          <article class="score-card score-card-load"><div class="card-topline"><span>cardio load</span><span class="score-badge score-badge-amber" id="loadBadge">estimated</span></div><div class="score-value"><strong id="loadValue">11.8</strong><span>units</span></div><p id="loadCopy">Estimated internal cardiovascular load from duration and heart rate.</p><div class="load-arc"><span id="loadArc"></span><i></i></div><div class="metric-foot"><span>active <b id="activeValue">642 kcal</b></span><span>exercise <b id="exerciseValue">48 min</b></span></div></article>
         </section>
 
         <section class="audit-panel panel" id="auditPanel" hidden>
@@ -134,6 +134,7 @@
       </form>
     </dialog>
     <script src="personal-data.js"></script>
+    <script src="health-import.js"></script>
     <script src="app.js" defer></script>
   </body>
 </html>

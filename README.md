@@ -9,7 +9,7 @@ The project is intentionally schema-first. Every displayed number should be trac
 ## What exists today
 
 - A browser dashboard with synthetic demo data.
-- A local Apple Health XML/JSON import path.
+- A local Apple Health ZIP/XML/JSON import path that streams large exports in the browser.
 - A canonical auditable dataset contract in schema.json.
 - A domain glossary and sync contract in CONTEXT.md and SCHEMA.md.
 - Transparent prototype formulas in PRODUCT_SPEC.md and prototype_healthkit_model.py.

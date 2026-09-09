@@ -84,8 +84,11 @@
         "kind": { "type": "string" },
         "value": { "type": ["number", "null"] },
         "weight": { "type": "number", "minimum": 0 },
-        "status": { "enum": ["available", "missing", "estimated"] },
-        "inputs": { "type": "array", "items": { "type": "string" } }
+        "status": { "enum": ["available", "missing", "estimated", "calibrating"] },
+        "inputs": { "type": "array", "items": { "type": "string" } },
+        "note": { "type": "string" },
+        "baselineCount": { "type": "integer", "minimum": 0 },
+        "z": { "type": "number" }
       }
     },
     "window": {
