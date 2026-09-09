@@ -1,0 +1,28 @@
+{
+  "files": [
+    {
+      "path": "README.md",
+      "description": "Product overview, privacy boundary, terminology, and local Apple Health import constraints"
+    },
+    {
+      "path": "SCHEMA.md",
+      "description": "Canonical observation, feature, score, provenance, missingness, and sync contract"
+    },
+    {
+      "path": "schema.json",
+      "description": "Machine-readable canonical dataset schema for normalized Apple Health data"
+    },
+    {
+      "path": "PRODUCT_SPEC.md",
+      "description": "Product behavior and transparent wellness-score requirements"
+    },
+    {
+      "path": "RESEARCH.md",
+      "description": "Source-backed HealthKit limitations, privacy constraints, and non-parity decisions"
+    },
+    {
+      "path": "CONTEXT.md",
+      "description": "Project domain context and implementation decisions"
+    }
+  ]
+}
