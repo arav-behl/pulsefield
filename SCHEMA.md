@@ -56,8 +56,9 @@ Ask only for facts that materially improve interpretation:
 1. What are you optimizing right now: sleep, training, energy, or general awareness?
 2. What is your usual sleep target?
 3. Which timezone should define a day and assign an overnight sleep episode?
+4. Which disclosed cardio-load reference profile should estimate workout load: male or female reference coefficients?
 
-Store answers as versioned user context. Never infer them from the score. The first question changes emphasis and copy; the second changes sleep sufficiency; the third prevents date-boundary errors.
+Store answers as versioned user context. Never infer them from the score. The first question changes emphasis and copy; the second changes sleep sufficiency; the third prevents date-boundary errors; the fourth selects and records the cardio-load coefficient pair.
 
 ## First native release
 

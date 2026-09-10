@@ -33,6 +33,10 @@
 
   const ALL_SUPPORTED_TYPES = Object.keys(TRACKED_TYPES).concat(["HKCategoryTypeIdentifierSleepAnalysis", "HKWorkout"]);
   const ALGORITHM_VERSION = "health-export/v0.2";
+  const CARDIO_LOAD_PROFILES = {
+    male: { id: "male", label: "male reference", reserveCoefficient: 0.64, intensityCoefficient: 1.92 },
+    female: { id: "female", label: "female reference", reserveCoefficient: 0.86, intensityCoefficient: 1.67 }
+  };
 
   function finiteNumber(value) {
     const parsed = Number(value);
@@ -50,7 +54,7 @@
       if (lower === "nbsp") return "\u00a0";
       if (lower.charAt(0) === "#") {
         const value = lower.charAt(1) === "x" ? parseInt(lower.slice(2), 16) : parseInt(lower.slice(1), 10);
-        return Number.isFinite(value) ? String.fromCodePoint(value) : _;
+        return Number.isFinite(value) && value >= 0 && value <= 0x10ffff ? String.fromCodePoint(value) : _;
       }
       return _;
     });
@@ -188,25 +192,73 @@
   }
 
   function makeObservation(attributes, id, kind, start, end, value, unit, importedAt) {
+    return [
+      id,
+      kind,
+      start,
+      end,
+      value,
+      unit,
+      "observed",
+      attributes.sourceName || "Apple Health export",
+      attributes.sourceVersion || null,
+      attributes.device || null,
+      attributes.uuid || null,
+      importedAt
+    ];
+  }
+
+  function materializeObservation(row) {
     return {
-      id: id,
-      kind: kind,
-      start: start,
-      end: end,
-      value: value,
-      unit: unit,
-      quality: "observed",
+      id: row[0],
+      kind: row[1],
+      start: row[2],
+      end: row[3],
+      value: row[4],
+      unit: row[5],
+      quality: row[6],
       provenance: {
         adapter: "health_export",
-        source: attributes.sourceName || "Apple Health export",
-        sourceRevision: attributes.sourceVersion || null,
-        device: attributes.device || null,
-        sourceRecordId: attributes.uuid || null,
-        observedAt: start,
-        importedAt: importedAt,
+        source: row[7],
+        sourceRevision: row[8],
+        device: row[9],
+        sourceRecordId: row[10],
+        observedAt: row[2],
+        importedAt: row[11],
         queryId: null
       }
     };
+  }
+
+  function observationIndex(property, length) {
+    if (typeof property !== "string" || !/^(0|[1-9]\d*)$/.test(property)) return null;
+    const index = Number(property);
+    return Number.isSafeInteger(index) && index >= 0 && index < length ? index : null;
+  }
+
+  function lazyObservations(rows) {
+    if (typeof Proxy === "undefined") return rows.map(materializeObservation);
+    const target = [];
+    target.length = rows.length;
+    return new Proxy(target, {
+      get: function (array, property, receiver) {
+        const index = observationIndex(property, rows.length);
+        if (index !== null) return materializeObservation(rows[index]);
+        if (property === "toJSON") return function () { return rows.map(materializeObservation); };
+        return Reflect.get(array, property, receiver);
+      },
+      has: function (array, property) {
+        return observationIndex(property, rows.length) !== null || Reflect.has(array, property);
+      },
+      ownKeys: function (array) {
+        return Array.from({ length: rows.length }, function (_, index) { return String(index); }).concat(Reflect.ownKeys(array));
+      },
+      getOwnPropertyDescriptor: function (array, property) {
+        const index = observationIndex(property, rows.length);
+        if (index !== null) return { configurable: true, enumerable: true, value: materializeObservation(rows[index]), writable: false };
+        return Reflect.getOwnPropertyDescriptor(array, property);
+      }
+    });
   }
 
   function parseRecord(tag, context) {
@@ -317,13 +369,48 @@
       days: new Map(),
       workouts: [],
       hrSamples: [],
-      observations: []
+      observations: [],
+      bufferTruncations: 0
     };
     const reader = stream.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     let bytesRead = 0;
     let lastReported = 0;
+
+    function elementBoundary(text, startIndex, name) {
+      const openEnd = text.indexOf(">", startIndex);
+      if (openEnd < 0) return null;
+      const nextRecord = text.indexOf("<Record ", startIndex + 1);
+      const nextWorkout = text.indexOf("<Workout ", startIndex + 1);
+      if ((nextRecord >= 0 && nextRecord < openEnd) || (nextWorkout >= 0 && nextWorkout < openEnd)) return null;
+      if (text.charAt(openEnd - 1) === "/") return { openEnd: openEnd, end: openEnd + 1 };
+      const closeTag = "</" + name + ">";
+      const closeIndex = text.indexOf(closeTag, openEnd + 1);
+      return closeIndex < 0 ? null : { openEnd: openEnd, end: closeIndex + closeTag.length };
+    }
+
+    function nextCompleteElement(text, fromIndex) {
+      let recordIndex = text.indexOf("<Record ", fromIndex);
+      let workoutIndex = text.indexOf("<Workout ", fromIndex);
+      while (recordIndex >= 0 || workoutIndex >= 0) {
+        const isRecord = recordIndex >= 0 && (workoutIndex < 0 || recordIndex < workoutIndex);
+        const startIndex = isRecord ? recordIndex : workoutIndex;
+        const boundary = elementBoundary(text, startIndex, isRecord ? "Record" : "Workout");
+        if (boundary) return startIndex;
+        if (isRecord) recordIndex = text.indexOf("<Record ", startIndex + 1);
+        else workoutIndex = text.indexOf("<Workout ", startIndex + 1);
+      }
+      return -1;
+    }
+
+    function retainStalledSuffix(text) {
+      const recordIndex = text.lastIndexOf("<Record ");
+      const workoutIndex = text.lastIndexOf("<Workout ");
+      const startIndex = Math.max(recordIndex, workoutIndex);
+      if (startIndex >= 0 && text.length - startIndex <= 64 * 1024) return text.slice(startIndex);
+      return text.slice(-512);
+    }
 
     function consume() {
       let cursor = 0;
@@ -333,27 +420,27 @@
         if (recordIndex < 0 && workoutIndex < 0) break;
         const isRecord = recordIndex >= 0 && (workoutIndex < 0 || recordIndex < workoutIndex);
         const startIndex = isRecord ? recordIndex : workoutIndex;
-        if (isRecord) {
-          const endIndex = buffer.indexOf("/>", startIndex);
-          if (endIndex < 0) break;
-          parseRecord(buffer.slice(startIndex, endIndex + 2), context);
-          cursor = endIndex + 2;
-        } else {
-          const openEnd = buffer.indexOf(">", startIndex);
-          if (openEnd < 0) break;
-          if (buffer.charAt(openEnd - 1) === "/") {
-            parseWorkout(buffer.slice(startIndex, openEnd + 1), context);
-            cursor = openEnd + 1;
-          } else {
-            const closeIndex = buffer.indexOf("</Workout>", openEnd + 1);
-            if (closeIndex < 0) break;
-            parseWorkout(buffer.slice(startIndex, openEnd + 1), context);
-            cursor = closeIndex + "</Workout>".length;
-          }
-        }
+        const boundary = elementBoundary(buffer, startIndex, isRecord ? "Record" : "Workout");
+        if (!boundary) break;
+        if (isRecord) parseRecord(buffer.slice(startIndex, boundary.openEnd + 1), context);
+        else parseWorkout(buffer.slice(startIndex, boundary.openEnd + 1), context);
+        cursor = boundary.end;
       }
       if (cursor > 0) buffer = buffer.slice(cursor);
-      if (cursor === 0 && buffer.length > 2 * 1024 * 1024) buffer = buffer.slice(-512);
+      if (cursor === 0 && buffer.length > 2 * 1024 * 1024) {
+        const recoverableStart = nextCompleteElement(buffer, 1);
+        if (recoverableStart > 0) {
+          context.bufferTruncations += 1;
+          buffer = buffer.slice(recoverableStart);
+          consume();
+          return;
+        }
+        const retained = retainStalledSuffix(buffer);
+        if (retained.length < buffer.length) {
+          context.bufferTruncations += 1;
+          buffer = retained;
+        }
+      }
     }
 
     while (true) {
@@ -389,6 +476,9 @@
     const entryCount = view.getUint16(endOffset + 10, true);
     const centralSize = view.getUint32(endOffset + 12, true);
     const centralOffset = view.getUint32(endOffset + 16, true);
+    if (entryCount === 0xffff || centralSize === 0xffffffff || centralOffset === 0xffffffff) {
+      throw new Error("ZIP64 archives are not supported here. Upload export.xml directly.");
+    }
     const central = new Uint8Array(await file.slice(centralOffset, centralOffset + centralSize).arrayBuffer());
     const centralView = new DataView(central.buffer, central.byteOffset, central.byteLength);
     const decoder = new TextDecoder();
@@ -441,7 +531,7 @@
       const previous = merged[merged.length - 1];
       if (previous && interval.startMs <= previous.endMs) {
         previous.endMs = Math.max(previous.endMs, interval.endMs);
-        previous.end = previous.endMs > epoch(previous.end) ? new Date(previous.endMs).toISOString() : previous.end;
+        previous.end = previous.endMs > epoch(previous.end) ? preserveTimestampOffset(previous.end, previous.endMs) : previous.end;
         previous.ids = previous.ids.concat(interval.id ? [interval.id] : []);
       } else {
         merged.push({ start: interval.start, end: interval.end, startMs: interval.startMs, endMs: interval.endMs, ids: interval.id ? [interval.id] : [] });
@@ -525,6 +615,15 @@
     return match ? Number(match[1]) * 60 + Number(match[2]) : null;
   }
 
+  function preserveTimestampOffset(original, timestampMs) {
+    const suffixMatch = String(original || "").match(/(Z|[+-]\d{2}:\d{2})$/);
+    if (!suffixMatch || suffixMatch[1] === "Z") return new Date(timestampMs).toISOString();
+    const offset = suffixMatch[1];
+    const sign = offset.charAt(0) === "-" ? -1 : 1;
+    const offsetMinutes = sign * (Number(offset.slice(1, 3)) * 60 + Number(offset.slice(4, 6)));
+    return new Date(timestampMs + offsetMinutes * 60000).toISOString().replace("Z", "") + offset;
+  }
+
   function nearestHeartRateRest(rawDay, days, index, lastRhr) {
     const current = metricValue(rawDay, "restingHeartRateBpm", "mean");
     if (current !== null) return current;
@@ -546,18 +645,23 @@
     return low;
   }
 
-  function cardioLoad(durationMin, heartRate, rest, maximum) {
+  function cardioLoadProfile(value) {
+    const key = String(value || "male").toLowerCase();
+    return CARDIO_LOAD_PROFILES[key] || CARDIO_LOAD_PROFILES.male;
+  }
+
+  function cardioLoad(durationMin, heartRate, rest, maximum, profile) {
     if (durationMin <= 0 || heartRate === null || rest === null || maximum === null || maximum <= rest) return null;
     const reserve = Math.max(0, Math.min(1, (heartRate - rest) / (maximum - rest)));
-    return durationMin * reserve * 0.64 * Math.exp(1.92 * reserve);
+    return durationMin * reserve * profile.reserveCoefficient * Math.exp(profile.intensityCoefficient * reserve);
   }
 
   function algorithm(name, formula, missingDataPolicy) {
     return { name: name, version: ALGORITHM_VERSION, formula: formula, missingDataPolicy: missingDataPolicy };
   }
 
-  function timezoneOffsetMs(date, timezone) {
-    const parts = new Intl.DateTimeFormat("en-US", {
+  function createDayWindowFactory(timezone) {
+    const formatter = new Intl.DateTimeFormat("en-US", {
       timeZone: timezone,
       hourCycle: "h23",
       year: "numeric",
@@ -566,31 +670,34 @@
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit"
-    }).formatToParts(date).reduce(function (result, part) {
-      if (part.type !== "literal") result[part.type] = part.value;
-      return result;
-    }, {});
-    const asUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second));
-    return asUtc - date.getTime();
+    });
+    const cache = new Map();
+    function timezoneOffsetMs(date) {
+      const parts = formatter.formatToParts(date).reduce(function (result, part) {
+        if (part.type !== "literal") result[part.type] = part.value;
+        return result;
+      }, {});
+      const asUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second));
+      return asUtc - date.getTime();
+    }
+    function zonedMidnight(date) {
+      const guess = new Date(date + "T00:00:00.000Z");
+      const firstOffset = timezoneOffsetMs(guess);
+      const first = new Date(guess.getTime() - firstOffset);
+      const secondOffset = timezoneOffsetMs(first);
+      return new Date(guess.getTime() - secondOffset).toISOString();
+    }
+    return function (date) {
+      if (!cache.has(date)) cache.set(date, { start: zonedMidnight(date), end: zonedMidnight(addDays(date, 1)), timezone: timezone });
+      return cache.get(date);
+    };
   }
 
-  function zonedMidnight(date, timezone) {
-    const guess = new Date(date + "T00:00:00.000Z");
-    const firstOffset = timezoneOffsetMs(guess, timezone);
-    const first = new Date(guess.getTime() - firstOffset);
-    const secondOffset = timezoneOffsetMs(first, timezone);
-    return new Date(guess.getTime() - secondOffset).toISOString();
-  }
-
-  function dayWindow(date, timezone) {
-    return { start: zonedMidnight(date, timezone), end: zonedMidnight(addDays(date, 1), timezone), timezone: timezone };
-  }
-
-  function buildFeature(features, date, kind, value, unit, inputs, timezone, formula, missingReason) {
+  function buildFeature(features, date, kind, value, unit, inputs, windowForDate, formula, missingReason) {
     features.push({
       id: "feature-" + date + "-" + kind,
       kind: kind,
-      window: dayWindow(date, timezone),
+      window: windowForDate(date),
       value: value,
       unit: unit,
       inputs: inputs || [],
@@ -602,6 +709,8 @@
   function buildDataset(context, options) {
     const settings = options || {};
     const timezone = settings.timezone || "UTC";
+    const windowForDate = createDayWindowFactory(timezone);
+    const selectedCardioProfile = cardioLoadProfile(settings.cardioLoadProfile);
     const sleepTargetMin = Math.max(240, Number(settings.sleepTarget || 8) * 60);
     const datesWithData = Array.from(context.days.keys()).sort();
     const firstDate = datesWithData[0] || null;
@@ -637,7 +746,8 @@
         workout.hrSamples = values.length;
         workout.hrAvgBpm = values.length ? round(values.reduce(function (sum, sample) { return sum + sample.value; }, 0) / values.length, 1) : null;
         workout.hrCoverage = values.length > 1 ? round(Math.min(1, (values[values.length - 1].ms - values[0].ms) / Math.max(1, endMs - startMs)), 2) : 0;
-        workout.cardioLoadRaw = cardioLoad(workout.durationMin, workout.hrAvgBpm, rest, hrMax);
+        workout.cardioLoadProfile = selectedCardioProfile.id;
+        workout.cardioLoadRaw = cardioLoad(workout.durationMin, workout.hrAvgBpm, rest, hrMax, selectedCardioProfile);
         workout.hrMaxSource = configuredHrMax !== null ? "user context" : (hrMax === null ? null : "observed export peak");
         if (workout.cardioLoadRaw !== null) {
           dailyLoad += workout.cardioLoadRaw;
@@ -692,9 +802,9 @@
           inputCount: asleepIntervals.length + inBedIntervals.length,
           inputIds: sleepIds
         };
-        buildFeature(features, entry.date, "sleep_score", round(sleepScore, 1), "score", sleepIds, timezone, "0.50*sufficiency + 0.30*efficiency + 0.20*timing_consistency when timing history exists");
+        buildFeature(features, entry.date, "sleep_score", round(sleepScore, 1), "score", sleepIds, windowForDate, "0.50*sufficiency + 0.30*efficiency + 0.20*timing_consistency when timing history exists");
       } else {
-        buildFeature(features, entry.date, "sleep_score", null, "score", [], timezone, "0.50*sufficiency + 0.30*efficiency + 0.20*timing_consistency", "missing a valid in-bed and asleep interval");
+        buildFeature(features, entry.date, "sleep_score", null, "score", [], windowForDate, "0.50*sufficiency + 0.30*efficiency + 0.20*timing_consistency", "missing a valid in-bed and asleep interval");
       }
 
       const hrv = round(metricValue(raw, "hrvSdnnMs", "mean"), 2);
@@ -744,7 +854,7 @@
         state: readinessState,
         confidence: confidence,
         components: readinessComponents,
-        window: dayWindow(entry.date, timezone),
+        window: windowForDate(entry.date),
         algorithm: algorithm("readiness-proxy", "weighted mean of sleep, HRV SDNN, resting heart rate, and respiratory-rate components", "missing components are excluded and the result is marked provisional; calibration blocks the composite")
       };
 
@@ -775,7 +885,7 @@
       scores.push({
         id: "score-" + entry.date + "-readiness",
         kind: "readiness_proxy",
-        window: dayWindow(entry.date, timezone),
+        window: windowForDate(entry.date),
         value: readinessValue,
         unit: "score",
         state: readinessState,
@@ -783,10 +893,10 @@
         components: readinessComponents,
         algorithm: readiness.algorithm
       });
-      buildFeature(features, entry.date, "hrv_sdnn", hrv, "ms", sourceIds(raw, "hrvSdnnMs"), timezone, "daily mean of HealthKit HRV SDNN samples", hrv === null ? "no HRV SDNN observation" : null);
-      buildFeature(features, entry.date, "resting_heart_rate", rhr, "bpm", sourceIds(raw, "restingHeartRateBpm"), timezone, "daily mean of resting heart rate samples", rhr === null ? "no resting heart rate observation" : null);
-      buildFeature(features, entry.date, "respiratory_rate", resp, "breaths/min", sourceIds(raw, "respiratoryRate"), timezone, "daily mean of respiratory rate samples", resp === null ? "no respiratory rate observation" : null);
-      buildFeature(features, entry.date, "cardio_load", day.cardioLoadRaw, "load units", workouts.map(function (workout) { return workout.id; }), timezone, "sum(duration * reserve * 0.64 * exp(1.92 * reserve)) across workouts", day.cardioLoadRaw === null ? "no workout heart-rate coverage or no usable heart-rate maximum" : null);
+      buildFeature(features, entry.date, "hrv_sdnn", hrv, "ms", sourceIds(raw, "hrvSdnnMs"), windowForDate, "daily mean of HealthKit HRV SDNN samples", hrv === null ? "no HRV SDNN observation" : null);
+      buildFeature(features, entry.date, "resting_heart_rate", rhr, "bpm", sourceIds(raw, "restingHeartRateBpm"), windowForDate, "daily mean of resting heart rate samples", rhr === null ? "no resting heart rate observation" : null);
+      buildFeature(features, entry.date, "respiratory_rate", resp, "breaths/min", sourceIds(raw, "respiratoryRate"), windowForDate, "daily mean of respiratory rate samples", resp === null ? "no respiratory rate observation" : null);
+      buildFeature(features, entry.date, "cardio_load", day.cardioLoadRaw, "load units", workouts.map(function (workout) { return workout.id; }), windowForDate, "sum(duration * reserve * " + selectedCardioProfile.reserveCoefficient + " * exp(" + selectedCardioProfile.intensityCoefficient + " * reserve)) using " + selectedCardioProfile.label + " coefficients", day.cardioLoadRaw === null ? "no workout heart-rate coverage or no usable heart-rate maximum" : null);
 
       if (hrv !== null) histories.hrvSdnnMs.push(hrv);
       if (rhr !== null) {
@@ -823,8 +933,17 @@
       },
       unsupportedTypes: Object.keys(context.recordTypes).filter(function (type) { return ALL_SUPPORTED_TYPES.indexOf(type) < 0; }).sort(),
       parseWarnings: context.warningCount,
+      bufferTruncations: context.bufferTruncations,
+      bufferTruncated: context.bufferTruncations > 0,
       hrMaxUsed: hrMax,
-      hrMaxSource: configuredHrMax !== null ? "user context" : (hrMax === null ? null : "observed export peak")
+      hrMaxSource: configuredHrMax !== null ? "user context" : (hrMax === null ? null : "observed export peak"),
+      cardioLoad: {
+        profile: selectedCardioProfile.id,
+        reference: selectedCardioProfile.label,
+        reserveCoefficient: selectedCardioProfile.reserveCoefficient,
+        intensityCoefficient: selectedCardioProfile.intensityCoefficient,
+        note: "Reference coefficients are an explicit modeling choice, not a medical classification."
+      }
     };
     const importedAt = context.importedAt;
     const sync = {
@@ -842,7 +961,7 @@
       schemaVersion: "1.0.0",
       datasetId: datasetId,
       timezone: timezone,
-      observations: context.observations,
+      observations: lazyObservations(context.observations),
       features: features,
       scores: scores,
       sync: sync,
@@ -864,9 +983,9 @@
         steps: row.steps === undefined ? null : row.steps,
         walkingDistanceKm: row.walkingDistanceKm !== undefined ? row.walkingDistanceKm : row.distance,
         exerciseMinutes: row.exerciseMinutes !== undefined ? row.exerciseMinutes : row.exercise,
-        sleepScore: row.sleepScore !== undefined ? row.sleepScore : row.sleep,
+        sleepScore: row.sleepScore !== undefined ? row.sleepScore : (typeof row.sleep === "number" ? row.sleep : null),
         cardioLoadRaw: row.cardioLoadRaw !== undefined ? row.cardioLoadRaw : row.load,
-        sleep: row.sleep || null,
+        sleep: row.sleep && typeof row.sleep === "object" && !Array.isArray(row.sleep) ? row.sleep : null,
         workoutCount: row.workoutCount || 0,
         workoutMinutes: row.workoutMinutes || 0,
         workouts: row.workouts || [],
@@ -901,12 +1020,243 @@
     };
   }
 
+  function isObject(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function validationError(path, message) {
+    throw new Error("Invalid Pulsefield JSON: " + path + " " + message);
+  }
+
+  function hasProperty(value, key) {
+    return Object.prototype.hasOwnProperty.call(value, key);
+  }
+
+  function requireProperty(value, key, path) {
+    if (!hasProperty(value, key)) validationError(path + "." + key, "is required.");
+  }
+
+  function requireObject(value, path) {
+    if (!isObject(value)) validationError(path, "must be an object.");
+    return value;
+  }
+
+  function requireArray(value, path) {
+    if (!Array.isArray(value)) validationError(path, "must be an array.");
+    return value;
+  }
+
+  function validateNullableNumber(value, path) {
+    if (value !== null && (typeof value !== "number" || !Number.isFinite(value))) validationError(path, "must be a finite number or null.");
+  }
+
+  function validateDate(value, path, allowNull) {
+    if (allowNull && value === null) return;
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value + "T12:00:00Z"))) validationError(path, allowNull ? "must be an ISO date or null." : "must be an ISO date.");
+  }
+
+  function validateDateTime(value, path, allowNull) {
+    if (allowNull && value === null) return;
+    if (typeof value !== "string" || Number.isNaN(Date.parse(value))) validationError(path, allowNull ? "must be an ISO date-time or null." : "must be an ISO date-time.");
+  }
+
+  function validateWindow(value, path) {
+    const window = requireObject(value, path);
+    ["start", "end", "timezone"].forEach(key => requireProperty(window, key, path));
+    validateDateTime(window.start, path + ".start");
+    validateDateTime(window.end, path + ".end");
+    if (typeof window.timezone !== "string" || !window.timezone) validationError(path + ".timezone", "must be a non-empty string.");
+  }
+
+  function validateAlgorithm(value, path) {
+    const algorithm = requireObject(value, path);
+    ["name", "version", "formula", "missingDataPolicy"].forEach(key => requireProperty(algorithm, key, path));
+    ["name", "version", "formula", "missingDataPolicy"].forEach(key => {
+      if (typeof algorithm[key] !== "string") validationError(path + "." + key, "must be a string.");
+    });
+  }
+
+  function validateComponent(value, path, enforceBaselineZ) {
+    const component = requireObject(value, path);
+    ["kind", "value", "weight", "status", "inputs"].forEach(key => requireProperty(component, key, path));
+    if (typeof component.kind !== "string" || !component.kind) validationError(path + ".kind", "must be a non-empty string.");
+    validateNullableNumber(component.value, path + ".value");
+    if (typeof component.weight !== "number" || !Number.isFinite(component.weight) || component.weight < 0) validationError(path + ".weight", "must be a non-negative finite number.");
+    if (!["available", "missing", "estimated", "calibrating"].includes(component.status)) validationError(path + ".status", "has an unsupported value.");
+    requireArray(component.inputs, path + ".inputs").forEach((input, index) => {
+      if (typeof input !== "string") validationError(path + ".inputs[" + index + "]", "must be a string.");
+    });
+    if (hasProperty(component, "note") && typeof component.note !== "string") validationError(path + ".note", "must be a string.");
+    if (hasProperty(component, "baselineCount") && (!Number.isInteger(component.baselineCount) || component.baselineCount < 0)) validationError(path + ".baselineCount", "must be a non-negative integer.");
+    if (hasProperty(component, "z")) validateNullableNumber(component.z, path + ".z");
+    if (enforceBaselineZ && ["hrv_sdnn", "resting_heart_rate", "respiratory_rate"].includes(component.kind) && component.status === "available" && !hasProperty(component, "z")) validationError(path + ".z", "is required for available physiological components.");
+  }
+
+  function validateObservation(value, path) {
+    const observation = requireObject(value, path);
+    ["id", "kind", "start", "end", "value", "unit", "provenance"].forEach(key => requireProperty(observation, key, path));
+    ["id", "kind", "unit"].forEach(key => {
+      if (typeof observation[key] !== "string" || !observation[key]) validationError(path + "." + key, "must be a non-empty string.");
+    });
+    validateDateTime(observation.start, path + ".start", false);
+    validateDateTime(observation.end, path + ".end", true);
+    const provenance = requireObject(observation.provenance, path + ".provenance");
+    ["adapter", "source", "observedAt", "importedAt"].forEach(key => requireProperty(provenance, key, path + ".provenance"));
+    if (!["healthkit", "health_export", "demo"].includes(provenance.adapter)) validationError(path + ".provenance.adapter", "has an unsupported value.");
+    if (typeof provenance.source !== "string") validationError(path + ".provenance.source", "must be a string.");
+    validateDateTime(provenance.observedAt, path + ".provenance.observedAt", false);
+    validateDateTime(provenance.importedAt, path + ".provenance.importedAt", false);
+  }
+
+  function validateFeature(value, path) {
+    const feature = requireObject(value, path);
+    ["id", "kind", "window", "value", "unit", "inputs", "algorithm"].forEach(key => requireProperty(feature, key, path));
+    ["id", "kind", "unit"].forEach(key => {
+      if (typeof feature[key] !== "string" || !feature[key]) validationError(path + "." + key, "must be a non-empty string.");
+    });
+    validateWindow(feature.window, path + ".window");
+    requireArray(feature.inputs, path + ".inputs").forEach((input, index) => {
+      if (typeof input !== "string") validationError(path + ".inputs[" + index + "]", "must be a string.");
+    });
+    validateAlgorithm(feature.algorithm, path + ".algorithm");
+    if (hasProperty(feature, "missingReason") && feature.missingReason !== null && typeof feature.missingReason !== "string") validationError(path + ".missingReason", "must be a string or null.");
+  }
+
+  function validateScore(value, path) {
+    const score = requireObject(value, path);
+    ["id", "kind", "window", "value", "unit", "state", "confidence", "components", "algorithm"].forEach(key => requireProperty(score, key, path));
+    ["id", "kind", "unit"].forEach(key => {
+      if (typeof score[key] !== "string" || !score[key]) validationError(path + "." + key, "must be a non-empty string.");
+    });
+    validateWindow(score.window, path + ".window");
+    validateNullableNumber(score.value, path + ".value");
+    if (!["calibrating", "insufficient_data", "provisional", "scored"].includes(score.state)) validationError(path + ".state", "has an unsupported value.");
+    validateNullableNumber(score.confidence, path + ".confidence");
+    requireArray(score.components, path + ".components").forEach((component, index) => validateComponent(component, path + ".components[" + index + "]", true));
+    validateAlgorithm(score.algorithm, path + ".algorithm");
+  }
+
+  function validateSyncState(value, path) {
+    const sync = requireObject(value, path);
+    ["status", "adapter", "lastAttemptAt"].forEach(key => requireProperty(sync, key, path));
+    if (!["never", "ready", "syncing", "complete", "partial", "error"].includes(sync.status)) validationError(path + ".status", "has an unsupported value.");
+    if (!["healthkit", "health_export", "demo", "none"].includes(sync.adapter)) validationError(path + ".adapter", "has an unsupported value.");
+    validateDateTime(sync.lastAttemptAt, path + ".lastAttemptAt", true);
+    if (hasProperty(sync, "lastSuccessAt")) validateDateTime(sync.lastSuccessAt, path + ".lastSuccessAt", true);
+    ["typesRead", "typesUnavailable"].forEach(key => {
+      if (hasProperty(sync, key)) requireArray(sync[key], path + "." + key).forEach((item, index) => {
+        if (typeof item !== "string") validationError(path + "." + key + "[" + index + "]", "must be a string.");
+      });
+    });
+  }
+
+  function validateSleep(value, path) {
+    if (value === null) return;
+    const sleep = requireObject(value, path);
+    ["inBedMin", "asleepMin", "stages", "start", "end"].forEach(key => requireProperty(sleep, key, path));
+    ["inBedMin", "asleepMin"].forEach(key => {
+      if (typeof sleep[key] !== "number" || !Number.isFinite(sleep[key]) || sleep[key] < 0) validationError(path + "." + key, "must be a non-negative finite number.");
+    });
+    const stages = requireObject(sleep.stages, path + ".stages");
+    ["deep", "rem", "core", "unspecified", "awake"].forEach(key => {
+      requireProperty(stages, key, path + ".stages");
+      validateNullableNumber(stages[key], path + ".stages." + key);
+    });
+    validateDateTime(sleep.start, path + ".start", true);
+    validateDateTime(sleep.end, path + ".end", true);
+  }
+
+  function validateWorkout(value, path) {
+    const workout = requireObject(value, path);
+    ["id", "date", "start", "end", "activity", "durationMin"].forEach(key => requireProperty(workout, key, path));
+    ["id", "activity"].forEach(key => {
+      if (typeof workout[key] !== "string" || !workout[key]) validationError(path + "." + key, "must be a non-empty string.");
+    });
+    validateDate(workout.date, path + ".date");
+    validateDateTime(workout.start, path + ".start", false);
+    validateDateTime(workout.end, path + ".end", false);
+    if (typeof workout.durationMin !== "number" || !Number.isFinite(workout.durationMin) || workout.durationMin < 0) validationError(path + ".durationMin", "must be a non-negative finite number.");
+    ["energyKcal", "distanceKm", "hrAvgBpm", "cardioLoadRaw", "hrCoverage"].forEach(key => {
+      if (hasProperty(workout, key)) validateNullableNumber(workout[key], path + "." + key);
+    });
+    if (hasProperty(workout, "hrSamples") && (!Number.isInteger(workout.hrSamples) || workout.hrSamples < 0)) validationError(path + ".hrSamples", "must be a non-negative integer.");
+    if (hasProperty(workout, "cardioLoadProfile") && !["male", "female"].includes(workout.cardioLoadProfile)) validationError(path + ".cardioLoadProfile", "has an unsupported value.");
+  }
+
+  function validateImportedDataset(value) {
+    const dataset = requireObject(value, "dataset");
+    ["schemaVersion", "metadata", "days", "workouts"].forEach(key => requireProperty(dataset, key, "dataset"));
+    if (typeof dataset.schemaVersion !== "string" || !dataset.schemaVersion) validationError("dataset.schemaVersion", "must be a non-empty string.");
+    if (hasProperty(dataset, "datasetId") && (typeof dataset.datasetId !== "string" || !dataset.datasetId)) validationError("dataset.datasetId", "must be a non-empty string.");
+    if (hasProperty(dataset, "timezone") && (typeof dataset.timezone !== "string" || !dataset.timezone)) validationError("dataset.timezone", "must be a non-empty string.");
+
+    const metadata = requireObject(dataset.metadata, "dataset.metadata");
+    ["recordCount", "recordTypes", "sourceBuckets", "dateRange", "workoutCount", "coverage"].forEach(key => requireProperty(metadata, key, "dataset.metadata"));
+    if (!Number.isInteger(metadata.recordCount) || metadata.recordCount < 0) validationError("dataset.metadata.recordCount", "must be a non-negative integer.");
+    requireObject(metadata.recordTypes, "dataset.metadata.recordTypes");
+    requireObject(metadata.sourceBuckets, "dataset.metadata.sourceBuckets");
+    const dateRange = requireObject(metadata.dateRange, "dataset.metadata.dateRange");
+    ["start", "end"].forEach(key => requireProperty(dateRange, key, "dataset.metadata.dateRange"));
+    validateDate(dateRange.start, "dataset.metadata.dateRange.start", true);
+    validateDate(dateRange.end, "dataset.metadata.dateRange.end", true);
+    if (!Number.isInteger(metadata.workoutCount) || metadata.workoutCount < 0) validationError("dataset.metadata.workoutCount", "must be a non-negative integer.");
+    requireObject(metadata.coverage, "dataset.metadata.coverage");
+    if (hasProperty(metadata, "cardioLoad")) {
+      const cardioLoad = requireObject(metadata.cardioLoad, "dataset.metadata.cardioLoad");
+      ["profile", "reference", "reserveCoefficient", "intensityCoefficient", "note"].forEach(key => requireProperty(cardioLoad, key, "dataset.metadata.cardioLoad"));
+      if (!["male", "female"].includes(cardioLoad.profile)) validationError("dataset.metadata.cardioLoad.profile", "has an unsupported value.");
+      ["reference", "note"].forEach(key => {
+        if (typeof cardioLoad[key] !== "string" || !cardioLoad[key]) validationError("dataset.metadata.cardioLoad." + key, "must be a non-empty string.");
+      });
+      ["reserveCoefficient", "intensityCoefficient"].forEach(key => {
+        if (typeof cardioLoad[key] !== "number" || !Number.isFinite(cardioLoad[key]) || cardioLoad[key] <= 0) validationError("dataset.metadata.cardioLoad." + key, "must be a positive finite number.");
+      });
+    }
+    ["latestAvailableDate", "latestSleepDate", "latestVitalsDate", "latestWorkoutDate"].forEach(key => {
+      if (hasProperty(metadata, key)) validateDate(metadata[key], "dataset.metadata." + key, true);
+    });
+    if (hasProperty(metadata, "parseWarnings") && (!Number.isInteger(metadata.parseWarnings) || metadata.parseWarnings < 0)) validationError("dataset.metadata.parseWarnings", "must be a non-negative integer.");
+
+    const days = requireArray(dataset.days, "dataset.days");
+    days.forEach((day, index) => {
+      const path = "dataset.days[" + index + "]";
+      const row = requireObject(day, path);
+      ["date", "heartRateBpm", "heartRateSamples", "hrvSdnnMs", "restingHeartRateBpm", "respiratoryRate", "activeEnergyKcal", "basalEnergyKcal", "steps", "exerciseMinutes", "walkingDistanceKm", "vo2Max", "heartRateRecoveryBpm", "oxygenSaturation", "sleep", "sleepScore", "cardioLoadRaw", "workoutCount", "workoutMinutes", "workouts", "readiness"].forEach(key => requireProperty(row, key, path));
+      validateDate(row.date, path + ".date", false);
+      ["heartRateBpm", "hrvSdnnMs", "restingHeartRateBpm", "respiratoryRate", "activeEnergyKcal", "basalEnergyKcal", "steps", "exerciseMinutes", "walkingDistanceKm", "vo2Max", "heartRateRecoveryBpm", "oxygenSaturation", "sleepScore", "cardioLoadRaw", "workoutMinutes"].forEach(key => validateNullableNumber(row[key], path + "." + key));
+      if (!Number.isInteger(row.heartRateSamples) || row.heartRateSamples < 0) validationError(path + ".heartRateSamples", "must be a non-negative integer.");
+      if (!Number.isInteger(row.workoutCount) || row.workoutCount < 0) validationError(path + ".workoutCount", "must be a non-negative integer.");
+      validateSleep(row.sleep, path + ".sleep");
+      const readiness = requireObject(row.readiness, path + ".readiness");
+      ["value", "state", "confidence", "components"].forEach(key => requireProperty(readiness, key, path + ".readiness"));
+      validateNullableNumber(readiness.value, path + ".readiness.value");
+      if (!["calibrating", "insufficient_data", "provisional", "scored"].includes(readiness.state)) validationError(path + ".readiness.state", "has an unsupported value.");
+      validateNullableNumber(readiness.confidence, path + ".readiness.confidence");
+      requireArray(readiness.components, path + ".readiness.components").forEach((component, componentIndex) => validateComponent(component, path + ".readiness.components[" + componentIndex + "]", false));
+      if (hasProperty(readiness, "algorithm")) validateAlgorithm(readiness.algorithm, path + ".readiness.algorithm");
+      requireArray(row.workouts, path + ".workouts").forEach((workout, workoutIndex) => validateWorkout(workout, path + ".workouts[" + workoutIndex + "]"));
+    });
+
+    requireArray(dataset.workouts, "dataset.workouts").forEach((workout, index) => validateWorkout(workout, "dataset.workouts[" + index + "]"));
+
+    const canonicalFields = ["observations", "features", "scores", "sync"];
+    const hasCanonicalFields = canonicalFields.some(key => hasProperty(dataset, key));
+    if (hasCanonicalFields) {
+      canonicalFields.forEach(key => requireProperty(dataset, key, "dataset"));
+      requireArray(dataset.observations, "dataset.observations").forEach((observation, index) => validateObservation(observation, "dataset.observations[" + index + "]"));
+      requireArray(dataset.features, "dataset.features").forEach((feature, index) => validateFeature(feature, "dataset.features[" + index + "]"));
+      requireArray(dataset.scores, "dataset.scores").forEach((score, index) => validateScore(score, "dataset.scores[" + index + "]"));
+      validateSyncState(dataset.sync, "dataset.sync");
+    }
+    return dataset;
+  }
+
   async function load(file, options, onProgress) {
     const lowerName = file.name.toLowerCase();
     if (lowerName.endsWith(".json")) {
       onProgress && onProgress("Reading local JSON export…");
       const value = JSON.parse(await file.text());
-      if (value && value.days && value.metadata) return value;
+      if (value && value.days && value.metadata) return validateImportedDataset(value);
       if (Array.isArray(value)) return datasetFromRows(value);
       throw new Error("JSON must contain Pulsefield days or an array of daily records");
     }

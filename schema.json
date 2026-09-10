@@ -89,7 +89,19 @@
         "note": { "type": "string" },
         "baselineCount": { "type": "integer", "minimum": 0 },
         "z": { "type": "number" }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["kind", "status"],
+            "properties": {
+              "kind": { "enum": ["hrv_sdnn", "resting_heart_rate", "respiratory_rate"] },
+              "status": { "const": "available" }
+            }
+          },
+          "then": { "required": ["z"] }
+        }
+      ]
     },
     "window": {
       "type": "object",

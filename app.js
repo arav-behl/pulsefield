@@ -48,8 +48,9 @@ function shortDate(s) { return new Intl.DateTimeFormat(undefined, { weekday:"sho
 function duration(h) { const m = Math.round(h * 60); return `${Math.floor(m/60)}h ${m%60}m`; }
 function set(s, value) { const e = $(s); if (e) e.textContent = value; }
 function loadContext() {
-  try { return JSON.parse(localStorage.getItem("pulsefield-context")) || { goal:"awareness", sleepTarget:8, timezone:Intl.DateTimeFormat().resolvedOptions().timeZone }; }
-  catch { return { goal:"awareness", sleepTarget:8, timezone:"UTC" }; }
+  const fallback = { goal:"awareness", sleepTarget:8, timezone:Intl.DateTimeFormat().resolvedOptions().timeZone, cardioLoadProfile:"male" };
+  try { return Object.assign(fallback, JSON.parse(localStorage.getItem("pulsefield-context")) || {}); }
+  catch { return { goal:"awareness", sleepTarget:8, timezone:"UTC", cardioLoadProfile:"male" }; }
 }
 function setSync(status, label, last) {
   state.sync = { status, label, last };
@@ -57,31 +58,6 @@ function setSync(status, label, last) {
   if (dot) dot.className = "sync-dot " + (status === "complete" ? "complete" : status === "error" ? "error" : status === "ready" ? "ready" : "");
   set("#syncState", label); set("#syncLast", last);
 }
-
-function render() {
-  const d = day();
-  set("#dashboardDate", fmtDate(d.date)); set("#recoveryValue", Math.round(d.recovery)); set("#sleepValue", Math.round(d.sleep)); set("#loadValue", d.load.toFixed(1));
-  set("#hrvValue", `${d.hrv} ms`); set("#rhrValue", `${d.rhr} bpm`); set("#sleepCopy", `${duration(d.hours)} asleep · 8h 58m in bed.`); set("#activeValue", `${d.active} kcal`); set("#exerciseValue", `${d.exercise} min`);
-  const band = d.recovery >= 67 ? "GREEN" : d.recovery >= 34 ? "YELLOW" : "RED"; set("#recoveryBadge", band); set("#recoveryCopy", band === "GREEN" ? "Your system looks ready for a challenging day." : "A lighter day may help your system catch up.");
-  $("#recoveryMeter").style.width = `${d.recovery}%`; $("#loadArc").style.width = `${clamp(d.load, 4, 100)}%`;
-  renderChart(); renderInsights(d); renderSleep(); renderActivities(); renderMovement(); renderWildVisuals();
-}
-
-function renderChart() {
-  const w = 720, h = 190, path = (vals) => vals.map((v,i) => `${i ? "L" : "M"}${(i/6*w).toFixed(1)},${(h-v/100*h).toFixed(1)}`).join(" ");
-  const series = [["recovery", state.data.map(d=>d.recovery), "#9fdda7"],["sleep", state.data.map(d=>d.sleep), "#c5b8f8"],["load", state.data.map(d=>Math.min(100, d.load)), "#f0c58c"]];
-  const grid = [0,25,50,75,100].map(v=>`<line class="chart-grid-line" x1="0" y1="${h-v/100*h}" x2="${w}" y2="${h-v/100*h}"/>`).join("");
-  const lines = series.map(([name, vals, color])=>`<path class="chart-line ${name}" d="${path(vals)}"/>${vals.map((v,i)=>`<circle class="chart-point" cx="${i/6*w}" cy="${h-v/100*h}" r="${i===state.day?5:3}" fill="${color}"/>`).join("")}`).join("");
-  $("#trendChart").innerHTML = `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${grid}${lines}</svg>`;
-  $("#chartLabels").innerHTML = state.data.map((d,i)=>`<span class="${i===state.day?'active':''}">${shortDate(d.date)}</span>`).join("");
-}
-function renderInsights(d) {
-  const prev = state.data[Math.max(0,state.day-1)], delta = Math.round(d.hrv-prev.hrv);
-  const items = [["↗",`HRV is ${delta>=0?'up':'down'} ${Math.abs(delta)} ms from yesterday`,"Trend beats a single reading."],["☾",`${duration(d.hours)} asleep last night`,d.sleep>=85?"You covered most of your sleep need.":"There is room to close the sleep gap."],["◌","Respiratory rate is holding steady","No meaningful overnight shift detected."]];
-  $("#insightList").innerHTML = items.map(([icon,title,copy])=>`<div class="insight-item"><span class="insight-icon">${icon}</span><div><strong>${title}</strong><p>${copy}</p></div></div>`).join("");
-}
-function renderSleep() { const stages = ["core","core","deep","deep","rem","core","awake","core","rem","core","deep","core","core","rem","awake","core","rem","core","deep","core","core","rem","core","awake","core","rem","core","deep","core","core","rem","core","awake","core","rem","core","deep","core","core","rem","core","awake"]; $("#sleepTimeline").innerHTML = stages.map(s=>`<i class="${s}"></i>`).join(""); }
-function renderActivities() { const rows = [["Running","Today","48 min","642 kcal"],["Outdoor walk","Yesterday","31 min","184 kcal"],["Strength training","Tue","42 min","291 kcal"]]; $("#activityTable").innerHTML = rows.map(([name,date,time,kcal])=>`<div class="activity-row"><div class="activity-name"><span class="activity-icon">✦</span>${name}</div><div class="activity-date">${date}</div><div class="activity-value"><span>time</span>${time}</div><div class="activity-value"><span>energy</span>${kcal}</div></div>`).join(""); }
 
 function personalWindow() {
   const start = Math.max(0, state.day - 6);
@@ -204,7 +180,10 @@ function renderAudit(d) {
   set("#auditState", stateLabel + " · " + available + "/4 inputs" + (d.readiness && d.readiness.confidence !== null && d.readiness.confidence !== undefined ? " · " + Math.round(d.readiness.confidence) + "% confidence" : ""));
   set("#auditInputs", components.length ? components.map(component => component.kind.replaceAll("_", " ") + " " + valueOrDash(component.value) + (component.status && component.status !== "available" ? " (" + component.status + ")" : "")).join(" · ") : "No readiness inputs on this day");
   set("#auditValues", "sleep " + valueOrDash(d.sleep) + " · HRV " + valueOrDash(d.hrv, " ms") + " · RHR " + valueOrDash(d.rhr, " bpm"));
-  set("#auditAlgorithm", d.recovery === null || d.recovery === undefined ? "readiness-proxy / v0.2 · not scored" : "readiness-proxy / v0.2");
+  const readinessAlgorithm = d.readiness && d.readiness.algorithm ? d.readiness.algorithm : {};
+  const algorithmName = readinessAlgorithm.name || "readiness-proxy";
+  const algorithmVersion = readinessAlgorithm.version || "v0.2";
+  set("#auditAlgorithm", algorithmName + " / " + algorithmVersion + (d.recovery === null || d.recovery === undefined ? " · not scored" : ""));
 }
 function renderInsights(d) {
   const items = [];
@@ -293,7 +272,8 @@ function renderMovement() {
   const maxCount = mixRows[0] ? mixRows[0][1] : 1;
   $("#workoutMix").innerHTML = mixRows.length ? mixRows.map(([label, count]) => '<div><span class="mix-label">' + escapeHtml(label) + '</span><span class="mix-count">' + count + '</span><div class="mix-bar"><i style="width:' + (count / maxCount * 100) + '%"></i></div></div>').join("") : '<span class="timeline-empty">No workout archive loaded.</span>';
   const range = state.dataset && state.dataset.metadata && state.dataset.metadata.dateRange;
-  set("#trainingWindow", personal && range ? range.start + " → " + range.end : "demo");
+  const trainingWindow = range && range.start && range.end ? range.start + " → " + range.end : "unknown range";
+  set("#trainingWindow", personal ? trainingWindow : "demo");
 }
 function daysBetween(start, end) {
   if (!start || !end) return null;
@@ -593,11 +573,12 @@ function openProfile() {
   $("#goalInput").value = context.goal;
   $("#sleepTargetInput").value = context.sleepTarget;
   $("#timezoneInput").value = context.timezone;
+  $("#cardioLoadProfileInput").value = context.cardioLoadProfile || "male";
   dialog.showModal();
 }
 function saveProfile(event) {
   if (event.submitter && event.submitter.value !== "save") return;
-  state.context = { goal: $("#goalInput").value, sleepTarget: Number($("#sleepTargetInput").value), timezone: $("#timezoneInput").value };
+  state.context = { goal: $("#goalInput").value, sleepTarget: Number($("#sleepTargetInput").value), timezone: $("#timezoneInput").value, cardioLoadProfile: $("#cardioLoadProfileInput").value };
   localStorage.setItem("pulsefield-context", JSON.stringify(state.context));
   set("#importStatus", "Context saved · " + state.context.goal + " · " + state.context.sleepTarget + "h sleep target");
 }
