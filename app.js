@@ -22,14 +22,16 @@ function personalDataRows(dataset) {
     workouts: item.workouts || []
   }));
 }
-const initialData = personalDataset && personalDataset.days && personalDataset.days.length ? personalDataRows(personalDataset) : demoData();
+const initialDataset = personalDataset && personalDataset.days && personalDataset.days.length ? personalDataset : null;
+const initialData = initialDataset ? personalDataRows(initialDataset) : demoData();
 const state = {
   day: initialData.length - 1,
   data: initialData,
-  source: personalDataset ? "personal" : "demo",
+  dataset: initialDataset,
+  source: initialDataset ? "personal" : "demo",
   context: loadContext(),
   trendRange: null,
-  sync: personalDataset ? { status:"complete", label:"local export loaded", last:(personalDataset.metadata && personalDataset.metadata.latestAvailableDate) || "export" } : { status: "never", label: "not connected", last: "no sync yet" }
+  sync: initialDataset ? { status:"complete", label:"local export loaded", last:(initialDataset.metadata && initialDataset.metadata.latestAvailableDate) || "export" } : { status: "never", label: "not connected", last: "no sync yet" }
 };
 const $ = (s) => document.querySelector(s);
 const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
@@ -46,8 +48,9 @@ function shortDate(s) { return new Intl.DateTimeFormat(undefined, { weekday:"sho
 function duration(h) { const m = Math.round(h * 60); return `${Math.floor(m/60)}h ${m%60}m`; }
 function set(s, value) { const e = $(s); if (e) e.textContent = value; }
 function loadContext() {
-  try { return JSON.parse(localStorage.getItem("pulsefield-context")) || { goal:"awareness", sleepTarget:8, timezone:Intl.DateTimeFormat().resolvedOptions().timeZone }; }
-  catch { return { goal:"awareness", sleepTarget:8, timezone:"UTC" }; }
+  const fallback = { goal:"awareness", sleepTarget:8, timezone:Intl.DateTimeFormat().resolvedOptions().timeZone, cardioLoadProfile:"male" };
+  try { return Object.assign(fallback, JSON.parse(localStorage.getItem("pulsefield-context")) || {}); }
+  catch { return fallback; }
 }
 function setSync(status, label, last) {
   state.sync = { status, label, last };
@@ -55,31 +58,6 @@ function setSync(status, label, last) {
   if (dot) dot.className = "sync-dot " + (status === "complete" ? "complete" : status === "error" ? "error" : status === "ready" ? "ready" : "");
   set("#syncState", label); set("#syncLast", last);
 }
-
-function render() {
-  const d = day();
-  set("#dashboardDate", fmtDate(d.date)); set("#recoveryValue", Math.round(d.recovery)); set("#sleepValue", Math.round(d.sleep)); set("#loadValue", d.load.toFixed(1));
-  set("#hrvValue", `${d.hrv} ms`); set("#rhrValue", `${d.rhr} bpm`); set("#sleepCopy", `${duration(d.hours)} asleep · 8h 58m in bed.`); set("#activeValue", `${d.active} kcal`); set("#exerciseValue", `${d.exercise} min`);
-  const band = d.recovery >= 67 ? "GREEN" : d.recovery >= 34 ? "YELLOW" : "RED"; set("#recoveryBadge", band); set("#recoveryCopy", band === "GREEN" ? "Your system looks ready for a challenging day." : "A lighter day may help your system catch up.");
-  $("#recoveryMeter").style.width = `${d.recovery}%`; $("#loadArc").style.width = `${clamp(d.load / 21 * 100, 4, 100)}%`;
-  renderChart(); renderInsights(d); renderSleep(); renderActivities(); renderMovement(); renderWildVisuals();
-}
-
-function renderChart() {
-  const w = 720, h = 190, path = (vals) => vals.map((v,i) => `${i ? "L" : "M"}${(i/6*w).toFixed(1)},${(h-v/100*h).toFixed(1)}`).join(" ");
-  const series = [["recovery", state.data.map(d=>d.recovery), "#9fdda7"],["sleep", state.data.map(d=>d.sleep), "#c5b8f8"],["load", state.data.map(d=>d.load/21*100), "#f0c58c"]];
-  const grid = [0,25,50,75,100].map(v=>`<line class="chart-grid-line" x1="0" y1="${h-v/100*h}" x2="${w}" y2="${h-v/100*h}"/>`).join("");
-  const lines = series.map(([name, vals, color])=>`<path class="chart-line ${name}" d="${path(vals)}"/>${vals.map((v,i)=>`<circle class="chart-point" cx="${i/6*w}" cy="${h-v/100*h}" r="${i===state.day?5:3}" fill="${color}"/>`).join("")}`).join("");
-  $("#trendChart").innerHTML = `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${grid}${lines}</svg>`;
-  $("#chartLabels").innerHTML = state.data.map((d,i)=>`<span class="${i===state.day?'active':''}">${shortDate(d.date)}</span>`).join("");
-}
-function renderInsights(d) {
-  const prev = state.data[Math.max(0,state.day-1)], delta = Math.round(d.hrv-prev.hrv);
-  const items = [["↗",`HRV is ${delta>=0?'up':'down'} ${Math.abs(delta)} ms from yesterday`,"Trend beats a single reading."],["☾",`${duration(d.hours)} asleep last night`,d.sleep>=85?"You covered most of your sleep need.":"There is room to close the sleep gap."],["◌","Respiratory rate is holding steady","No meaningful overnight shift detected."]];
-  $("#insightList").innerHTML = items.map(([icon,title,copy])=>`<div class="insight-item"><span class="insight-icon">${icon}</span><div><strong>${title}</strong><p>${copy}</p></div></div>`).join("");
-}
-function renderSleep() { const stages = ["core","core","deep","deep","rem","core","awake","core","rem","core","deep","core","core","rem","awake","core","rem","core","deep","core","core","rem","core","awake","core","rem","core","deep","core","core","rem","core","awake","core","rem","core","deep","core","core","rem","core","awake"]; $("#sleepTimeline").innerHTML = stages.map(s=>`<i class="${s}"></i>`).join(""); }
-function renderActivities() { const rows = [["Running","Today","48 min","642 kcal"],["Outdoor walk","Yesterday","31 min","184 kcal"],["Strength training","Tue","42 min","291 kcal"]]; $("#activityTable").innerHTML = rows.map(([name,date,time,kcal])=>`<div class="activity-row"><div class="activity-name"><span class="activity-icon">✦</span>${name}</div><div class="activity-date">${date}</div><div class="activity-value"><span>time</span>${time}</div><div class="activity-value"><span>energy</span>${kcal}</div></div>`).join(""); }
 
 function personalWindow() {
   const start = Math.max(0, state.day - 6);
@@ -96,7 +74,7 @@ function recentCoverage(days) {
 function render() {
   const d = day();
   const personal = state.source === "personal";
-  const meta = personalDataset && personalDataset.metadata;
+  const meta = state.dataset && state.dataset.metadata;
   const partial = personal && meta && d.date === meta.latestAvailableDate;
   set("#dashboardDate", fmtDate(d.date) + (partial ? " · partial export" : ""));
   set("#readoutContext", partial ? "Latest available day · partial export" : analysisReady(d) ? "Analysis-ready day · 3+ signals present" : "Historical day · partial signal");
@@ -118,7 +96,7 @@ function render() {
   set("#recoveryCopy", d.recovery === null || d.recovery === undefined ? "Not scored: current data does not contain enough overnight inputs." : band === "GREEN" ? "Your system looks ready for a challenging day." : "A lighter day may help your system catch up.");
   set("#loadCopy", d.load === null || d.load === undefined ? "No workout heart-rate load calculated for this date." : "Estimated from workout duration and available heart-rate samples.");
   $("#recoveryMeter").style.width = d.recovery === null || d.recovery === undefined ? "0%" : d.recovery + "%";
-  $("#loadArc").style.width = d.load === null || d.load === undefined ? "0%" : clamp(d.load / 21 * 100, 4, 100) + "%";
+  $("#loadArc").style.width = d.load === null || d.load === undefined ? "0%" : clamp(d.load, 4, 100) + "%";
   if (personal && meta) {
     set("#importStatus", "Personal export loaded locally · " + Number(meta.recordCount).toLocaleString() + " records · latest activity " + meta.latestAvailableDate);
     set("#syncTitle", "Local export loaded");
@@ -173,7 +151,7 @@ function renderChart() {
   const scoreSeries = [
     ["recovery", visible.map(item => item.recovery), "#9fdda7"],
     ["sleep", visible.map(item => item.sleep), "#c5b8f8"],
-    ["load", visible.map(item => item.load === null || item.load === undefined ? null : item.load / 21 * 100), "#f0c58c"]
+    ["load", visible.map(item => item.load === null || item.load === undefined ? null : Math.min(100, item.load)), "#f0c58c"]
   ];
   const movementValues = visible.map(item => item.steps === null || item.steps === undefined ? null : Math.min(100, item.steps / Math.max(1, medianValue(state.data.map(row => row.steps)) * 1.6) * 100));
   const hasScoreSignal = scoreSeries.some(([, values]) => values.some(value => value !== null && value !== undefined));
@@ -198,31 +176,35 @@ function renderChart() {
 function renderAudit(d) {
   const components = d.readiness && d.readiness.components ? d.readiness.components : [];
   const stateLabel = d.readiness && d.readiness.state ? d.readiness.state : "insufficient_data";
-  set("#auditState", stateLabel + " · " + components.length + "/4 inputs");
-  set("#auditInputs", components.length ? components.map(component => component.kind.replaceAll("_", " ") + " " + valueOrDash(component.value)).join(" · ") : "No readiness inputs on this day");
+  const available = components.filter(component => component.status === "available" || (component.status === undefined && component.value !== null && component.value !== undefined)).length;
+  set("#auditState", stateLabel + " · " + available + "/4 inputs" + (d.readiness && d.readiness.confidence !== null && d.readiness.confidence !== undefined ? " · " + Math.round(d.readiness.confidence) + "% confidence" : ""));
+  set("#auditInputs", components.length ? components.map(component => component.kind.replaceAll("_", " ") + " " + valueOrDash(component.value) + (component.status && component.status !== "available" ? " (" + component.status + ")" : "")).join(" · ") : "No readiness inputs on this day");
   set("#auditValues", "sleep " + valueOrDash(d.sleep) + " · HRV " + valueOrDash(d.hrv, " ms") + " · RHR " + valueOrDash(d.rhr, " bpm"));
-  set("#auditAlgorithm", d.recovery === null || d.recovery === undefined ? "readiness-proxy / v0.1 · not scored" : "readiness-proxy / v0.1");
+  const readinessAlgorithm = d.readiness && d.readiness.algorithm ? d.readiness.algorithm : {};
+  const algorithmName = readinessAlgorithm.name || "readiness-proxy";
+  const algorithmVersion = readinessAlgorithm.version || "v0.2";
+  set("#auditAlgorithm", algorithmName + " / " + algorithmVersion + (d.recovery === null || d.recovery === undefined ? " · not scored" : ""));
 }
 function renderInsights(d) {
   const items = [];
-  const previous = state.data[Math.max(0, state.day - 1)];
+  const previous = state.data[Math.max(0, state.day - 1)] || {};
   const hrvDelta = d.hrv !== null && d.hrv !== undefined && previous.hrv !== null && previous.hrv !== undefined ? Math.round(d.hrv - previous.hrv) : null;
   if (hrvDelta !== null) items.push(["↗", "HRV is " + (hrvDelta >= 0 ? "up " : "down ") + Math.abs(hrvDelta) + " ms from yesterday", "Trend beats a single reading."]);
   if (d.sleep === null || d.sleep === undefined) {
-    const lastSleep = personalDataset && personalDataset.metadata && personalDataset.metadata.latestSleepDate;
+    const lastSleep = state.dataset && state.dataset.metadata && state.dataset.metadata.latestSleepDate;
     items.push(["◌", "Sleep coverage ends " + (lastSleep || "before this date"), "The dashboard will not infer recovery without overnight inputs."]);
   } else {
     items.push(["☾", duration(d.hours) + " asleep last night", d.sleep >= 85 ? "You covered most of your configured sleep target." : "There is room to close the sleep gap."]);
   }
   if (d.steps !== null && d.steps !== undefined) items.push(["↗", Number(d.steps).toLocaleString() + " steps recorded", valueOrDash(d.distance, " km") + " walking distance in the same window."]);
   if (d.workoutCount) items.push(["✦", d.workoutCount + " workout" + (d.workoutCount > 1 ? "s" : "") + " recorded", valueOrDash(d.workoutMinutes, " min") + " of activity; cardio load remains approximate without dense workout HR."]);
-  if (personalDataset && personalDataset.workouts && personalDataset.workouts.length) {
-    const mostCommon = Object.entries(personalDataset.workouts.reduce((counts, workout) => {
+  if (state.dataset && state.dataset.workouts && state.dataset.workouts.length) {
+    const mostCommon = Object.entries(state.dataset.workouts.reduce((counts, workout) => {
       const label = displayActivityName(workout.activity || "Other");
       counts[label] = (counts[label] || 0) + 1;
       return counts;
     }, {})).sort((a, b) => b[1] - a[1])[0];
-    if (mostCommon) items.push(["⌁", mostCommon[0] + " is your dominant recorded movement", mostCommon[1].toLocaleString() + " of " + personalDataset.workouts.length.toLocaleString() + " workouts in the archive."]);
+    if (mostCommon) items.push(["⌁", escapeHtml(mostCommon[0]) + " is your dominant recorded movement", mostCommon[1].toLocaleString() + " of " + state.dataset.workouts.length.toLocaleString() + " workouts in the archive."]);
   }
   if (!items.length) items.push(["·", "No analyzable signal for this day", "Choose another date or import a newer Health export."]);
   $("#insightList").innerHTML = items.map(item => '<div class="insight-item"><span class="insight-icon">' + item[0] + '</span><div><strong>' + item[1] + "</strong><p>" + item[2] + "</p></div></div>").join("");
@@ -251,7 +233,7 @@ function renderSleep() {
 }
 function renderActivities() {
   const rows = personalWindow().flatMap(item => item.workouts || []).sort((a,b) => b.start.localeCompare(a.start)).slice(0, 5);
-  $("#activityTable").innerHTML = rows.length ? rows.map(row => '<div class="activity-row"><div class="activity-name"><span class="activity-icon">✦</span>' + row.activity.replace("TraditionalStrengthTraining", "Strength training") + '</div><div class="activity-date">' + row.date + '</div><div class="activity-value"><span>time</span>' + valueOrDash(row.durationMin, " min") + '</div><div class="activity-value"><span>cardio load</span>' + valueOrDash(row.cardioLoadRaw, "") + "</div></div>").join("") : '<div class="timeline-empty">No workouts in this seven-day window.</div>';
+  $("#activityTable").innerHTML = rows.length ? rows.map(row => '<div class="activity-row"><div class="activity-name"><span class="activity-icon">✦</span>' + escapeHtml(row.activity.replace("TraditionalStrengthTraining", "Strength training")) + '</div><div class="activity-date">' + escapeHtml(row.date) + '</div><div class="activity-value"><span>time</span>' + valueOrDash(row.durationMin, " min") + '</div><div class="activity-value"><span>cardio load</span>' + valueOrDash(row.cardioLoadRaw, "") + "</div></div>").join("") : '<div class="timeline-empty">No workouts in this seven-day window.</div>';
 }
 
 function medianValue(values) {
@@ -273,12 +255,12 @@ function renderMovement() {
   set("#energyValue", valueOrDash(d.active, " kcal"));
   set("#exerciseMinutesValue", valueOrDash(d.exercise, " min"));
   set("#stepsContext", medianSteps === null ? "no recent baseline" : "30d median " + Math.round(medianSteps).toLocaleString());
-  set("#energyContext", d.date === (personalDataset && personalDataset.metadata && personalDataset.metadata.latestAvailableDate) ? "partial export day" : "daily total");
+  set("#energyContext", d.date === (state.dataset && state.dataset.metadata && state.dataset.metadata.latestAvailableDate) ? "partial export day" : "daily total");
   set("#exerciseContext", d.workoutCount ? d.workoutCount + " logged workout" + (d.workoutCount > 1 ? "s" : "") : "no workout record");
   const latestVo2 = personal ? nextValue("vo2Max") : null;
   const latestRecovery = personal ? nextValue("heartRateRecoveryBpm") : null;
   set("#fitnessContext", latestVo2 === null && latestRecovery === null ? "VO₂ max and heart-rate recovery are not present in the latest window." : "Latest available fitness context: " + (latestVo2 === null ? "" : "VO₂ max " + valueOrDash(latestVo2, " mL/kg/min")) + (latestVo2 !== null && latestRecovery !== null ? " · " : "") + (latestRecovery === null ? "" : "1-min HR recovery " + valueOrDash(latestRecovery, " bpm")));
-  const workouts = personal && personalDataset ? personalDataset.workouts || [] : state.data.flatMap(item => item.workouts || []);
+  const workouts = personal && state.dataset ? state.dataset.workouts || [] : state.data.flatMap(item => item.workouts || []);
   const totalMinutes = workouts.reduce((sum, row) => sum + (row.durationMin || 0), 0);
   const totalLoad = workouts.reduce((sum, row) => sum + (row.cardioLoadRaw || 0), 0);
   set("#totalWorkoutValue", workouts.length.toLocaleString());
@@ -288,8 +270,10 @@ function renderMovement() {
   workouts.forEach(row => { const label = displayActivityName(row.activity || "Other"); mix[label] = (mix[label] || 0) + 1; });
   const mixRows = Object.entries(mix).sort((a,b) => b[1] - a[1]).slice(0, 5);
   const maxCount = mixRows[0] ? mixRows[0][1] : 1;
-  $("#workoutMix").innerHTML = mixRows.length ? mixRows.map(([label, count]) => '<div><span class="mix-label">' + label + '</span><span class="mix-count">' + count + '</span><div class="mix-bar"><i style="width:' + (count / maxCount * 100) + '%"></i></div></div>').join("") : '<span class="timeline-empty">No workout archive loaded.</span>';
-  set("#trainingWindow", personal && personalDataset ? personalDataset.metadata.dateRange.start + " → " + personalDataset.metadata.dateRange.end : "demo");
+  $("#workoutMix").innerHTML = mixRows.length ? mixRows.map(([label, count]) => '<div><span class="mix-label">' + escapeHtml(label) + '</span><span class="mix-count">' + count + '</span><div class="mix-bar"><i style="width:' + (count / maxCount * 100) + '%"></i></div></div>').join("") : '<span class="timeline-empty">No workout archive loaded.</span>';
+  const range = state.dataset && state.dataset.metadata && state.dataset.metadata.dateRange;
+  const trainingWindow = range && range.start && range.end ? range.start + " → " + range.end : "unknown range";
+  set("#trainingWindow", personal ? trainingWindow : "demo");
 }
 function daysBetween(start, end) {
   if (!start || !end) return null;
@@ -404,7 +388,7 @@ function renderWildVisuals() {
   renderSignalStory(); renderHistoricalWindows(); renderRhythmChart(); renderCoverageMap(); renderActivityHeatmap(); renderSpectrum();
 }
 function renderSignalStory() {
-  const meta = personalDataset && personalDataset.metadata;
+  const meta = state.dataset && state.dataset.metadata;
   const recent = state.data.slice(-30);
   const recentSteps = medianValue(recent.map(item => item.steps));
   const historicalSteps = medianValue(state.data.map(item => item.steps));
@@ -473,8 +457,8 @@ function renderCoverageMap() {
   const months = Object.keys(buckets).sort().slice(-48);
   const lane = (label, key, klass) => '<div class="coverage-lane"><span>' + label + '</span><div class="coverage-cells">' + months.map(month => { const bucket=buckets[month], ratio=bucket[key]/bucket.total; const level=ratio===0?0:ratio<.34?1:ratio<.67?2:3; return '<i class="coverage-cell ' + klass + ' level-' + level + '" tabindex="0" data-tooltip="' + escapeHtml(month + ': ' + Math.round(ratio*100) + '%') + '"></i>'; }).join("") + "</div></div>";
   $("#coverageTimeline").innerHTML = lane("sleep","sleep","sleep") + lane("vitals","vitals","vitals") + lane("workouts","workout","workout");
-  const sleepGap = personalDataset && personalDataset.metadata ? personalDataset.metadata.latestSleepDate : null;
-  set("#gapNote", sleepGap ? "Sleep has usable stage data on " + (personalDataset.metadata.coverage.sleepDays || 0) + " days. The longest quiet stretch is " + latestGap("sleep") + " days, so recovery is currently an evidence gap, not a low score." : "Import personal data to map coverage.");
+  const sleepGap = state.dataset && state.dataset.metadata ? state.dataset.metadata.latestSleepDate : null;
+  set("#gapNote", sleepGap ? "Sleep has usable stage data on " + ((state.dataset.metadata.coverage && state.dataset.metadata.coverage.sleepDays) || 0) + " days. The longest quiet stretch is " + latestGap("sleep") + " days, so recovery is currently an evidence gap, not a low score." : "Import personal data to map coverage.");
 }
 function renderActivityHeatmap() {
   const items = state.data.slice(-365);
@@ -490,7 +474,7 @@ function renderActivityHeatmap() {
   set("#heatmapSummary", steps.length + " days with step data · " + Math.round(medianValue(steps)).toLocaleString() + " median steps");
 }
 function renderSpectrum() {
-  const workouts = (personalDataset && personalDataset.workouts ? personalDataset.workouts : []).filter(row => row.cardioLoadRaw !== null && row.cardioLoadRaw !== undefined);
+  const workouts = (state.dataset && state.dataset.workouts ? state.dataset.workouts : []).filter(row => row.cardioLoadRaw !== null && row.cardioLoadRaw !== undefined);
   const w = 760, h = 255, padX = 42, padY = 20, maxDuration = Math.max(60, ...workouts.map(row => row.durationMin || 0)), maxLoad = Math.max(60, ...workouts.map(row => row.cardioLoadRaw || 0));
   const x = value => padX + Math.min(1, value / maxDuration) * (w - padX - 12);
   const y = value => h - padY - Math.min(1, value / maxLoad) * (h - padY - 20);
@@ -498,7 +482,7 @@ function renderSpectrum() {
   const dots = workouts.map(row => {
     const name = row.activity || "";
     const color = /Running|HIIT|HighIntensity/i.test(name) ? "#9fdda7" : /Tennis|Badminton|Squash/i.test(name) ? "#c5b8f8" : /Strength/i.test(name) ? "#f0c58c" : "#7ba99d";
-    return '<circle class="spectrum-dot" tabindex="0" data-tooltip="' + escapeHtml(row.date + ' · ' + displayActivityName(name) + " · " + row.durationMin + " min · " + row.cardioLoadRaw + " load · HR " + valueOrDash(row.hrAvgBpm, " bpm")) + '" cx="' + x(row.durationMin || 0) + '" cy="' + y(row.cardioLoadRaw || 0) + '" r="3" fill="' + color + '"><title>' + displayActivityName(name) + " · " + row.durationMin + " min · " + row.cardioLoadRaw + " load</title></circle>";
+    return '<circle class="spectrum-dot" tabindex="0" data-tooltip="' + escapeHtml(row.date + ' · ' + displayActivityName(name) + " · " + row.durationMin + " min · " + row.cardioLoadRaw + " load · HR " + valueOrDash(row.hrAvgBpm, " bpm")) + '" cx="' + x(row.durationMin || 0) + '" cy="' + y(row.cardioLoadRaw || 0) + '" r="3" fill="' + color + '"><title>' + escapeHtml(displayActivityName(name) + " · " + row.durationMin + " min · " + row.cardioLoadRaw + " load") + "</title></circle>";
   }).join("");
   $("#spectrumChart").innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">' + grid + '<line class="spectrum-grid" x1="' + padX + '" y1="' + (h-padY) + '" x2="' + (w-12) + '" y2="' + (h-padY) + '"/><text class="spectrum-axis" x="' + padX + '" y="' + (h-3) + '">short</text><text class="spectrum-axis" x="' + (w-45) + '" y="' + (h-3) + '">long</text><text class="spectrum-axis" x="3" y="25">high</text><text class="spectrum-axis" x="3" y="' + (h-25) + '">low</text>' + dots + "</svg>";
 }
@@ -589,11 +573,12 @@ function openProfile() {
   $("#goalInput").value = context.goal;
   $("#sleepTargetInput").value = context.sleepTarget;
   $("#timezoneInput").value = context.timezone;
+  $("#cardioLoadProfileInput").value = context.cardioLoadProfile || "male";
   dialog.showModal();
 }
 function saveProfile(event) {
   if (event.submitter && event.submitter.value !== "save") return;
-  state.context = { goal: $("#goalInput").value, sleepTarget: Number($("#sleepTargetInput").value), timezone: $("#timezoneInput").value };
+  state.context = { goal: $("#goalInput").value, sleepTarget: Number($("#sleepTargetInput").value), timezone: $("#timezoneInput").value, cardioLoadProfile: $("#cardioLoadProfileInput").value };
   localStorage.setItem("pulsefield-context", JSON.stringify(state.context));
   set("#importStatus", "Context saved · " + state.context.goal + " · " + state.context.sleepTarget + "h sleep target");
 }
@@ -619,7 +604,7 @@ function setupDateControls() {
   });
 }
 $("#importButton").addEventListener("click", openFile); $("#heroImportButton").addEventListener("click", openFile); $("#syncButton").addEventListener("click", syncHealth); $("#profileButton").addEventListener("click", openProfile);
-$("#demoButton").addEventListener("click", ()=>{ state.data = demoData(); state.day = 6; state.source = "demo"; state.trendRange = null; setupDateControls(); set("#importStatus", "Demo mode · no data leaves your browser"); render(); });
+$("#demoButton").addEventListener("click", ()=>{ state.dataset = null; state.data = demoData(); state.day = state.data.length - 1; state.source = "demo"; state.trendRange = null; setSync("never", "not connected", "demo mode"); setupDateControls(); set("#importStatus", "Demo mode · no personal data leaves your browser"); render(); });
 $("#previousDay").addEventListener("click", ()=>{ state.day = Math.max(0, state.day-1); state.trendRange = null; render(); }); $("#nextDay").addEventListener("click", ()=>{ state.day = Math.min(state.data.length - 1, state.day+1); state.trendRange = null; render(); });
 $("#dayPicker").addEventListener("change", event => selectDay(event.target.value));
 $("#jumpUsableButton").addEventListener("click", () => selectWindow(latestAnalysisWindow()));
@@ -630,13 +615,31 @@ $("#bestWindowButton").addEventListener("click", () => { const best = [...usable
 $("#profileForm").addEventListener("submit", saveProfile);
 $("#auditButton").addEventListener("click", ()=>{ $("#auditPanel").hidden = false; $("#auditPanel").scrollIntoView({ behavior:"smooth", block:"center" }); });
 $("#closeAudit").addEventListener("click", ()=>{ $("#auditPanel").hidden = true; });
-$("#fileInput").addEventListener("change", async (event) => { const file = event.target.files[0]; if (!file) return; set("#importStatus", `Reading ${file.name} locally…`); try { const text = await file.text(); const imported = file.name.toLowerCase().endsWith(".json") ? JSON.parse(text) : parseHealthXml(text); if (!imported.length) throw new Error("No supported HealthKit records found"); state.data = normalize(imported); state.day = state.data.length - 1; state.source = "import"; state.trendRange = null; setupDateControls(); set("#importStatus", `Imported ${file.name} · processed locally in your browser`); render(); } catch (error) { set("#importStatus", `Could not read this export: ${error.message}`); } });
+$("#fileInput").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    set("#importStatus", "Opening " + file.name + " locally…");
+    const dataset = await window.PulsefieldHealthImport.load(file, state.context, (message) => set("#importStatus", message));
+    if (!dataset.days.length) throw new Error("No supported HealthKit records found");
+    state.dataset = dataset;
+    state.data = personalDataRows(dataset);
+    state.day = state.data.length - 1;
+    state.source = "personal";
+    state.trendRange = null;
+    setupDateControls();
+    set("#importStatus", "Imported " + file.name + " · " + Number(dataset.metadata.recordCount).toLocaleString() + " records processed locally");
+    render();
+  } catch (error) {
+    setSync("error", "import failed", "local only");
+    set("#importStatus", "Could not read this export: " + error.message);
+  } finally {
+    event.target.value = "";
+  }
+});
 
 setupTimezones();
 setupDateControls();
 render();
-
-function normalize(rows) { const base = demoData(); return rows.slice(-7).map((r,i)=>({ ...base[i], ...r, date:r.date || base[i].date })); }
-function parseHealthXml(text) { const xml = new DOMParser().parseFromString(text, "application/xml"); const days = {}; xml.querySelectorAll("Record").forEach(record=>{ const type = record.getAttribute("type") || "", date = (record.getAttribute("startDate") || "").slice(0,10), value = Number(record.getAttribute("value")); if (!date || !Number.isFinite(value)) return; days[date] ||= { date }; if (type.includes("RestingHeartRate")) days[date].rhr = value; if (type.includes("HeartRateVariability")) days[date].hrv = value; if (type.includes("RespiratoryRate")) days[date].resp = value; if (type.includes("ActiveEnergy")) days[date].active = (days[date].active || 0) + value; }); return Object.values(days).sort((a,b)=>a.date.localeCompare(b.date)); }
 
 render();

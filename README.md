@@ -9,11 +9,11 @@ The project is intentionally schema-first. Every displayed number should be trac
 ## What exists today
 
 - A browser dashboard with synthetic demo data.
-- A local Apple Health XML/JSON import path.
+- A local Apple Health ZIP/XML/JSON import path that streams large exports in the browser.
 - A canonical auditable dataset contract in schema.json.
 - A domain glossary and sync contract in CONTEXT.md and SCHEMA.md.
 - Transparent prototype formulas in PRODUCT_SPEC.md and prototype_healthkit_model.py.
-- A context setup flow for goal, sleep target, and timezone.
+- A context setup flow for goal, sleep target, timezone, and an explicit cardio-load reference profile.
 - An audit panel that shows how a score is assembled.
 
 Open index.html directly, or run:
@@ -36,7 +36,7 @@ Pulsefield uses:
 
 - readiness proxy for a personal baseline-relative wellness signal;
 - sleep score for a transparent user-target-based heuristic;
-- cardio load for heart-rate-based workout load.
+- cardio load for heart-rate-based workout load, using a disclosed male or female reference coefficient pair.
 
 It does not claim to reproduce WHOOP Recovery or Strain. WHOOP's complete weights and processing pipeline are proprietary, and Apple exposes SDNN HRV rather than WHOOP's overnight RMSSD. See RESEARCH.md for the source-backed comparison.
 

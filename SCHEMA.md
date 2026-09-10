@@ -12,7 +12,7 @@ The canonical JSON shape is in schema.json. A number only becomes meaningful whe
 
 | Layer | Meaning | Example |
 | --- | --- | --- |
-| Observation | Source fact | Apple HRV SDNN: 64 ms |
+| Observation | Source fact | Apple HRV SDNN: 64 ms, or a bounded workout record |
 | Feature | Derived fact | Sleep efficiency: 91% |
 | Score | Transparent composition | Readiness proxy: 78/100 |
 | Sync state | What the app actually knows | Complete, 14 types read, cursor advanced |
@@ -22,6 +22,7 @@ The canonical JSON shape is in schema.json. A number only becomes meaningful whe
 - A contributor can trace a dashboard number back to source records.
 - A model update can use a new algorithm version without rewriting history.
 - Missing inputs remain visible instead of becoming zeros.
+- Calibrating, missing, and available score components remain distinct.
 - A native HealthKit adapter and browser export adapter can produce the same canonical records.
 - Users can export their normalized data without exporting a proprietary database or sending it to a server.
 
@@ -55,8 +56,9 @@ Ask only for facts that materially improve interpretation:
 1. What are you optimizing right now: sleep, training, energy, or general awareness?
 2. What is your usual sleep target?
 3. Which timezone should define a day and assign an overnight sleep episode?
+4. Which disclosed cardio-load reference profile should estimate workout load: male or female reference coefficients?
 
-Store answers as versioned user context. Never infer them from the score. The first question changes emphasis and copy; the second changes sleep sufficiency; the third prevents date-boundary errors.
+Store answers as versioned user context. Never infer them from the score. The first question changes emphasis and copy; the second changes sleep sufficiency; the third prevents date-boundary errors; the fourth selects and records the cardio-load coefficient pair.
 
 ## First native release
 

@@ -44,6 +44,11 @@ SLEEP_TYPES = {
     "HKCategoryValueSleepAnalysisAwake": "awake",
 }
 
+CARDIO_LOAD_PROFILES = {
+    "male": {"label": "male reference", "reserveCoefficient": 0.64, "intensityCoefficient": 1.92},
+    "female": {"label": "female reference", "reserveCoefficient": 0.86, "intensityCoefficient": 1.67},
+}
+
 
 def parse_datetime(value: str | None) -> datetime | None:
     if not value:
@@ -133,11 +138,11 @@ def robust_z(value: float | None, history: list[float]) -> float | None:
     return max(-3, min(3, (value - center) / scale))
 
 
-def cardio_load(duration_min: float, heart_rate: float | None, rest: float = 58, maximum: float = 190) -> float | None:
+def cardio_load(duration_min: float, heart_rate: float | None, profile: dict[str, Any], rest: float = 58, maximum: float = 190) -> float | None:
     if heart_rate is None or duration_min <= 0 or maximum <= rest:
         return None
     reserve = max(0, min(1, (heart_rate - rest) / (maximum - rest)))
-    return duration_min * reserve * 0.64 * math.exp(1.92 * reserve)
+    return duration_min * reserve * profile["reserveCoefficient"] * math.exp(profile["intensityCoefficient"] * reserve)
 
 
 def prepare_day() -> dict[str, Any]:
@@ -245,7 +250,8 @@ def attach_workout_heart_rate(xml_path: Path, workouts: list[dict[str, Any]]) ->
             element.clear()
 
 
-def finish(meta: dict[str, Any], raw_days: list[dict[str, Any]], workouts: list[dict[str, Any]]) -> dict[str, Any]:
+def finish(meta: dict[str, Any], raw_days: list[dict[str, Any]], workouts: list[dict[str, Any]], cardio_profile: str = "male") -> dict[str, Any]:
+    profile = CARDIO_LOAD_PROFILES.get(cardio_profile, CARDIO_LOAD_PROFILES["male"])
     by_date = {}
     for raw in raw_days:
         for interval_list in raw["sleep_intervals"].values():
@@ -258,7 +264,9 @@ def finish(meta: dict[str, Any], raw_days: list[dict[str, Any]], workouts: list[
             if hr_values:
                 workout["hrAvgBpm"] = round(sum(hr_values) / len(hr_values), 1)
                 workout["hrSamples"] = len(hr_values)
-                workout["cardioLoadRaw"] = round(cardio_load(workout["durationMin"], workout["hrAvgBpm"]) or 0, 1)
+                load = cardio_load(workout["durationMin"], workout["hrAvgBpm"], profile)
+                workout["cardioLoadRaw"] = round(load, 1) if load is not None else None
+                workout["cardioLoadProfile"] = cardio_profile
                 workout["cardioLoadApproximate"] = True
             else:
                 workout["hrAvgBpm"] = None
@@ -268,6 +276,16 @@ def finish(meta: dict[str, Any], raw_days: list[dict[str, Any]], workouts: list[
         by_date[raw.get("date") or ""] = raw
 
     if not by_date:
+        meta.update({
+            "coverage": {},
+            "cardioLoad": {
+                "profile": cardio_profile,
+                "reference": profile["label"],
+                "reserveCoefficient": profile["reserveCoefficient"],
+                "intensityCoefficient": profile["intensityCoefficient"],
+                "note": "Reference coefficients are an explicit modeling choice, not a medical classification.",
+            },
+        })
         return {"metadata": meta, "days": [], "workouts": []}
     start = date.fromisoformat(meta["dateRange"]["start"])
     end = date.fromisoformat(meta["dateRange"]["end"])
@@ -398,6 +416,13 @@ def finish(meta: dict[str, Any], raw_days: list[dict[str, Any]], workouts: list[
             "respiratoryRateDays": sum(1 for item in output_days if item["respiratoryRate"] is not None),
             "workoutDays": sum(1 for item in output_days if item["workoutCount"]),
         },
+        "cardioLoad": {
+            "profile": cardio_profile,
+            "reference": profile["label"],
+            "reserveCoefficient": profile["reserveCoefficient"],
+            "intensityCoefficient": profile["intensityCoefficient"],
+            "note": "Reference coefficients are an explicit modeling choice, not a medical classification.",
+        },
     })
     return {"schemaVersion": "personal-summary-1.0.0", "metadata": meta, "days": output_days, "workouts": clean_workouts}
 
@@ -406,6 +431,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("export_dir", type=Path)
     parser.add_argument("--output", type=Path, default=Path("personal-data.js"))
+    parser.add_argument("--cardio-load-profile", choices=sorted(CARDIO_LOAD_PROFILES), default="male")
     args = parser.parse_args()
     xml_path = args.export_dir / "export.xml"
     if not xml_path.exists():
@@ -413,7 +439,7 @@ def main() -> None:
     meta, raw_days, _, _ = parse_export(xml_path)
     workouts = [workout for raw in raw_days for workout in raw["workouts"]]
     attach_workout_heart_rate(xml_path, workouts)
-    dataset = finish(meta, raw_days, workouts)
+    dataset = finish(meta, raw_days, workouts, args.cardio_load_profile)
     payload = "window.PULSEFIELD_PERSONAL_DATA = " + json.dumps(dataset, ensure_ascii=False, separators=(",", ":")) + ";\n"
     args.output.write_text(payload, encoding="utf-8")
     report = {

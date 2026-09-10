@@ -1,0 +1,5 @@
+{
+  "strictness": 2,
+  "commentTypes": ["logic", "syntax", "style"],
+  "instructions": "Review Pulsefield as a local-first Apple Health export visualizer. Prioritize correctness of parsing, normalization, units, time zones, interval overlap, deduplication, provenance, and explicit missing-data states. Treat health data as sensitive: flag accidental uploads, logging, analytics, secrets, or medical/diagnostic claims. Prefer small, auditable changes that preserve the schema contract and browser-only privacy model. Do not treat demo data, absent samples, or unsupported HealthKit types as real measurements. When reviewing scores, require the algorithm, inputs, window, uncertainty, and version to remain explainable."
+}

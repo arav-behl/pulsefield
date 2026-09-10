@@ -175,9 +175,11 @@ For each heart-rate interval inside a workout, with duration d in minutes:
 
 ~~~text
 r = clamp((HR - HR_rest) / (HR_max - HR_rest), 0, 1)
-interval_load = d * r * 0.64 * exp(1.92 * r)
+interval_load = d * r * reserve_coefficient * exp(intensity_coefficient * r)
 cardio_load_raw = sum(interval_load)
 ~~~
+
+The default male reference uses `reserve_coefficient = 0.64` and `intensity_coefficient = 1.92`. The optional female reference uses `0.86` and `1.67`. The selected reference is explicit user context and is recorded in `metadata.cardioLoad`; it is a modeling choice, not a medical classification or an inference about identity.
 
 Rules:
 
