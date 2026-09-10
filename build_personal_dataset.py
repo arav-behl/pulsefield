@@ -264,7 +264,8 @@ def finish(meta: dict[str, Any], raw_days: list[dict[str, Any]], workouts: list[
             if hr_values:
                 workout["hrAvgBpm"] = round(sum(hr_values) / len(hr_values), 1)
                 workout["hrSamples"] = len(hr_values)
-                workout["cardioLoadRaw"] = round(cardio_load(workout["durationMin"], workout["hrAvgBpm"], profile) or 0, 1)
+                load = cardio_load(workout["durationMin"], workout["hrAvgBpm"], profile)
+                workout["cardioLoadRaw"] = round(load, 1) if load is not None else None
                 workout["cardioLoadProfile"] = cardio_profile
                 workout["cardioLoadApproximate"] = True
             else:

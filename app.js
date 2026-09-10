@@ -50,7 +50,7 @@ function set(s, value) { const e = $(s); if (e) e.textContent = value; }
 function loadContext() {
   const fallback = { goal:"awareness", sleepTarget:8, timezone:Intl.DateTimeFormat().resolvedOptions().timeZone, cardioLoadProfile:"male" };
   try { return Object.assign(fallback, JSON.parse(localStorage.getItem("pulsefield-context")) || {}); }
-  catch { return { goal:"awareness", sleepTarget:8, timezone:"UTC", cardioLoadProfile:"male" }; }
+  catch { return fallback; }
 }
 function setSync(status, label, last) {
   state.sync = { status, label, last };

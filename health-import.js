@@ -971,9 +971,19 @@
     };
   }
 
+  function validatedSleepOrNull(value, path) {
+    if (value === null || value === undefined || !isObject(value)) return null;
+    try {
+      validateSleep(value, path);
+      return value;
+    } catch (error) {
+      return null;
+    }
+  }
+
   function datasetFromRows(rows) {
     const sorted = rows.filter(function (row) { return row && row.date; }).slice().sort(function (a, b) { return a.date.localeCompare(b.date); });
-    const days = sorted.map(function (row) {
+    const days = sorted.map(function (row, index) {
       return {
         date: row.date,
         hrvSdnnMs: row.hrvSdnnMs !== undefined ? row.hrvSdnnMs : row.hrv,
@@ -985,7 +995,7 @@
         exerciseMinutes: row.exerciseMinutes !== undefined ? row.exerciseMinutes : row.exercise,
         sleepScore: row.sleepScore !== undefined ? row.sleepScore : (typeof row.sleep === "number" ? row.sleep : null),
         cardioLoadRaw: row.cardioLoadRaw !== undefined ? row.cardioLoadRaw : row.load,
-        sleep: row.sleep && typeof row.sleep === "object" && !Array.isArray(row.sleep) ? row.sleep : null,
+        sleep: validatedSleepOrNull(row.sleep, "rows[" + index + "].sleep"),
         workoutCount: row.workoutCount || 0,
         workoutMinutes: row.workoutMinutes || 0,
         workouts: row.workouts || [],
